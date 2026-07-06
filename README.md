@@ -1,93 +1,157 @@
-# :package_description
+# Laravel VIN
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/:vendor_slug/:package_slug.svg?style=flat-square)](https://packagist.org/packages/:vendor_slug/:package_slug)
-[![GitHub Tests Action Status](https://github.com/spatie/package-skeleton-laravel/actions/workflows/run-tests.yml/badge.svg)](https://github.com/:vendor_slug/:package_slug/actions?query=workflow%3Arun-tests+branch%3Amain)
-[![GitHub Code Style Action Status](https://github.com/spatie/package-skeleton-laravel/actions/workflows/fix-php-code-style-issues.yml/badge.svg)](https://github.com/:vendor_slug/:package_slug/actions?query=workflow%3A"Fix+PHP+code+style+issues"+branch%3Amain)
-[![Total Downloads](https://img.shields.io/packagist/dt/:vendor_slug/:package_slug.svg?style=flat-square)](https://packagist.org/packages/:vendor_slug/:package_slug)
-<!--delete-->
----
-This repo can be used to scaffold a Laravel package. Follow these steps to get started:
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/alwayscurious/laravel-vin.svg?style=flat-square)](https://packagist.org/packages/alwayscurious/laravel-vin)
+[![Tests](https://github.com/alwayscurious/laravel-vin/actions/workflows/tests.yml/badge.svg)](https://github.com/alwayscurious/laravel-vin/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 
-1. Press the "Use this template" button at the top of this repo to create a new repo with the contents of this skeleton.
-2. Run "php ./configure.php" to run a script that will replace all placeholders throughout all the files.
-3. Have fun creating your package.
-4. If you need help creating a package, consider picking up our <a href="https://laravelpackage.training">Laravel Package Training</a> video course.
----
-<!--/delete-->
-This is where your description should go. Limit it to a paragraph or two. Consider adding a small example.
+Decode a US vehicle VIN into year, make, model, series, trim, body class and
+more via the [NHTSA vPIC API](https://vpic.nhtsa.dot.gov/api/). Decodes are
+cached (a VIN's decode is immutable), with a version knob to invalidate every
+cached decode at once and a master switch to disable live lookups entirely.
 
-## Support us
+## Requirements
 
-[<img src="https://github-ads.s3.eu-central-1.amazonaws.com/:package_name.jpg?t=1" width="419px" />](https://spatie.be/github-ad-click/:package_name)
-
-We invest a lot of resources into creating [best in class open source packages](https://spatie.be/open-source). You can support us by [buying one of our paid products](https://spatie.be/open-source/support-us).
-
-We highly appreciate you sending us a postcard from your hometown, mentioning which of our package(s) you are using. You'll find our address on [our contact page](https://spatie.be/about-us). We publish all received postcards on [our virtual postcard wall](https://spatie.be/open-source/postcards).
+- PHP `^8.3`
+- Laravel 11, 12 or 13 (`illuminate/*` `^11.0|^12.0|^13.0`)
 
 ## Installation
 
-You can install the package via composer:
+```bash
+composer require alwayscurious/laravel-vin
+```
+
+The service provider is auto-discovered — no manual registration needed.
+
+Publishing the config file is optional; the package ships with sane defaults
+and reads everything from environment variables:
 
 ```bash
-composer require :vendor_slug/:package_slug
+php artisan vendor:publish --tag=vin-config
 ```
 
-You can publish and run the migrations with:
+### Configuration
 
-```bash
-php artisan vendor:publish --tag=":package_slug-migrations"
-php artisan migrate
-```
+Every setting is driven by an environment variable, so you rarely need to touch
+the published config file:
 
-You can publish the config file with:
-
-```bash
-php artisan vendor:publish --tag=":package_slug-config"
-```
-
-This is the contents of the published config file:
-
-```php
-return [
-];
-```
-
-Optionally, you can publish the views using
-
-```bash
-php artisan vendor:publish --tag=":package_slug-views"
-```
+| Env var             | Config key         | Default                            | Purpose                                                              |
+| ------------------- | ------------------ | ---------------------------------- | ------------------------------------------------------------------- |
+| `VIN_BASE_URL`      | `vin.base_url`     | `https://vpic.nhtsa.dot.gov/api`   | NHTSA vPIC API base URL.                                             |
+| `VIN_TIMEOUT`       | `vin.timeout`      | `10`                               | HTTP timeout (seconds) per decode request.                          |
+| `VIN_CACHE_TTL`     | `vin.cache_ttl`    | `86400`                            | How long (seconds) a decoded VIN stays cached.                      |
+| `VIN_CACHE_VERSION` | `vin.cache_version`| `1`                                | Bump to invalidate every cached decode at once.                     |
+| `VIN_ENABLED`       | `vin.enabled`      | `true`                             | Master switch for live decoding.                                    |
 
 ## Usage
 
+Resolve `VinLookupService` from the container:
+
 ```php
-$:variable = new VendorName\Skeleton();
-echo $:variable->echoPhrase('Hello, VendorName!');
+use AlwaysCurious\Vin\VinLookupService;
+
+$service = app(VinLookupService::class);
+
+// Throws VinLookupException on an invalid VIN, an API failure, or when
+// live decoding is disabled by configuration.
+$vehicle = $service->lookup('7YAMYFS50TY009706');
+
+// Optional model-year hint to improve decoding accuracy:
+$vehicle = $service->lookup('7YAMYFS50TY009706', 2026);
 ```
+
+### `tryLookup()`
+
+Returns `null` instead of throwing on any failure:
+
+```php
+$vehicle = $service->tryLookup('7YAMYFS50TY009706');
+
+if ($vehicle !== null) {
+    // ...
+}
+```
+
+### `isValid()`
+
+Structurally validate a VIN (17 characters, excluding I, O and Q) without
+hitting the network:
+
+```php
+$service->isValid('7yamyfs50ty009706'); // true — input is normalized first
+$service->isValid('NOT-A-VIN');         // false
+```
+
+### The `VehicleData` value object
+
+`lookup()` / `tryLookup()` return an immutable `VehicleData`:
+
+```php
+$vehicle->vin;           // '7YAMYFS50TY009706'
+$vehicle->year;          // 2026 (int|null)
+$vehicle->make;          // 'HYUNDAI'
+$vehicle->model;         // 'Ioniq 9'
+$vehicle->series;        // string|null
+$vehicle->trim;          // 'Calligraphy'
+$vehicle->bodyClass;     // 'Sport Utility Vehicle (SUV)/Multi-Purpose Vehicle (MPV)'
+$vehicle->manufacturer;  // 'HYUNDAI MOTOR GROUP METAPLANT AMERICA'
+$vehicle->vehicleType;   // 'MULTIPURPOSE PASSENGER VEHICLE (MPV)'
+$vehicle->errorCode;     // 0 (int|null) — primary NHTSA decode status
+$vehicle->errorText;     // string|null
+
+$vehicle->decodedSuccessfully(); // true when NHTSA reports a clean decode (error code 0)
+$vehicle->isFullyIdentified();   // true when year + make + model are all present
+
+$vehicle->toArray();  // snake_cased array
+json_encode($vehicle); // JsonSerializable — same shape as toArray()
+```
+
+`decodedSuccessfully()` is stricter than `isFullyIdentified()`: NHTSA can return
+a full year/make/model while still flagging a non-blocking warning (e.g. a model
+year mismatch), in which case `isFullyIdentified()` is `true` but
+`decodedSuccessfully()` is `false`.
+
+### Invalidating cached decodes
+
+A VIN's decode never changes, so results are cached for `VIN_CACHE_TTL` seconds.
+If NHTSA corrects its data — or you change what the package stores — bump
+`VIN_CACHE_VERSION`. The version is part of the cache key, so every previously
+cached decode is bypassed at once without flushing your whole cache store.
+
+### Disabling live decoding
+
+Set `VIN_ENABLED=false` to turn off all network calls. `lookup()` then throws a
+`VinLookupException` and `tryLookup()` returns `null` — neither hits the API.
 
 ## Testing
 
-```bash
-composer test
+Because the package uses Laravel's HTTP client, you can fake the NHTSA API in
+your own tests:
+
+```php
+use AlwaysCurious\Vin\VinLookupService;
+use Illuminate\Support\Facades\Http;
+
+Http::fake([
+    'vpic.nhtsa.dot.gov/*' => Http::response([
+        'Results' => [[
+            'Make' => 'HYUNDAI',
+            'Model' => 'Ioniq 9',
+            'ModelYear' => '2026',
+            'ErrorCode' => '0',
+        ]],
+    ]),
+]);
+
+$vehicle = app(VinLookupService::class)->lookup('7YAMYFS50TY009706');
 ```
 
-## Changelog
+Run the package's own suite with:
 
-Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed recently.
-
-## Contributing
-
-Please see [CONTRIBUTING](CONTRIBUTING.md) for details.
-
-## Security Vulnerabilities
-
-Please review [our security policy](../../security/policy) on how to report security vulnerabilities.
-
-## Credits
-
-- [:author_name](https://github.com/:author_username)
-- [All Contributors](../../contributors)
+```bash
+composer test   # vendor/bin/phpunit
+composer lint   # vendor/bin/pint
+```
 
 ## License
 
-The MIT License (MIT). Please see [License File](LICENSE.md) for more information.
+The MIT License (MIT). See [LICENSE](LICENSE).
