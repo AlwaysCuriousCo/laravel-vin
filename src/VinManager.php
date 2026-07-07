@@ -4,6 +4,7 @@ namespace AlwaysCurious\Vin;
 
 use AlwaysCurious\Vin\Contracts\VinDecoder;
 use AlwaysCurious\Vin\Decoders\NhtsaVinDecoder;
+use AlwaysCurious\Vin\Vehicle\AttributeLevel;
 use Illuminate\Support\Manager;
 
 /**
@@ -48,11 +49,33 @@ class VinManager extends Manager
     }
 
     /**
+     * Decode many VINs with the default driver in one batch (when the driver supports it).
+     *
+     * @param  array<int, string>  $vins
+     * @return array<string, VehicleData>
+     *
+     * @throws VinLookupException
+     */
+    public function lookupMany(array $vins, ?int $modelYear = null): array
+    {
+        return $this->using()->lookupMany($vins, $modelYear);
+    }
+
+    /**
      * Whether the given string is structurally a valid VIN (no decoder/network call).
      */
     public function isValid(string $vin): bool
     {
         return $this->using()->isValid($vin);
+    }
+
+    /**
+     * Whether the given string is a structurally valid VIN with a correct ISO 3779 check digit
+     * (no decoder/network call). Stricter and opt-in relative to {@see isValid()}.
+     */
+    public function hasValidCheckDigit(string $vin): bool
+    {
+        return $this->using()->hasValidCheckDigit($vin);
     }
 
     /**
@@ -82,6 +105,9 @@ class VinManager extends Manager
         return new NhtsaVinDecoder(
             $this->config->get('vin.decoders.nhtsa.base_url'),
             (int) $this->config->get('vin.decoders.nhtsa.timeout', 10),
+            AttributeLevel::fromConfig($this->config->get('vin.decoders.nhtsa.attributes')),
+            (int) $this->config->get('vin.decoders.nhtsa.retry.times', 2),
+            (int) $this->config->get('vin.decoders.nhtsa.retry.sleep', 200),
         );
     }
 }

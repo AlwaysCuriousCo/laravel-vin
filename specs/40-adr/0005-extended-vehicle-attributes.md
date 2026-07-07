@@ -76,6 +76,22 @@ stored shape use the existing `vin.cache.version` knob (VIN-007) to invalidate. 
 gains nested `engine`/`safety`/`body`/`plant` keys — additive, but consumers doing a strict
 whole-array comparison of the old shape must account for them.
 
+**Mitigation — the `AttributeLevel` knob (VD-007), defaulting lean.** The storage/CPU cost above
+is opt-in. `fromFlatResult()` takes an `AttributeLevel` and the NHTSA decoder reads it from
+`vin.decoders.nhtsa.attributes`, whose **shipped default is `identity`** — the clean ~80% set
+(year, make, model, trim, body class, vehicle type, manufacturer; VIN and decode status are
+always present). `Identity` skips both the group mapping and the passthrough loop (≈ the
+pre-feature footprint); `Typed` adds the groups and `series`; `Full` adds the raw bag — the
+single biggest contributor to row size. So a fresh install pays nothing for the extra data until
+it asks for it, and total parity is one config value away. `series` sits in `Typed` rather than
+the default because it is comparatively niche and often empty; it is the one identity field the
+lean default omits. The code-level defaults (`fromFlatResult()`'s parameter and the
+unknown-value fallback) stay `Full` so the mapping utility maps everything unless asked otherwise
+and an upgrade whose published config predates this key is never silently stripped. The groups
+stay non-null at every level, so consumer reads never need a level-dependent null check. Field
+names were validated against live `DecodeVinValues` responses (this is how `RearVisibilitySystem`,
+not the non-existent `BackupCamera`, was chosen for the safety group).
+
 ## Review
 
 Revisit if the raw-bag storage cost becomes material at scale (switch to lazy group projection

@@ -2,6 +2,7 @@
 
 namespace AlwaysCurious\Vin\Tests;
 
+use AlwaysCurious\Vin\Vehicle\AttributeLevel;
 use AlwaysCurious\Vin\Vehicle\Body;
 use AlwaysCurious\Vin\Vehicle\Engine;
 use AlwaysCurious\Vin\Vehicle\Plant;
@@ -51,8 +52,8 @@ class VehicleDataTest extends TestCase
             'PlantState' => 'GEORGIA',
             'PlantCountry' => 'UNITED STATES (USA)',
             'PlantCompanyName' => '',
-            // Safety (BackupCamera is deliberately padded to prove trimming)
-            'BackupCamera' => ' Standard ',
+            // Safety (RearVisibilitySystem is deliberately padded to prove trimming)
+            'RearVisibilitySystem' => ' Standard ',
             'ABS' => 'Standard',
             'AirBagLocCurtain' => 'All Rows',
             // Long-tail field intentionally not lifted into a typed property
@@ -72,7 +73,7 @@ class VehicleDataTest extends TestCase
         // ...including the long tail we do not type.
         $this->assertSame('North America', $vehicle->attributes['DestinationMarket']);
         // Values are trimmed.
-        $this->assertSame('Standard', $vehicle->attributes['BackupCamera']);
+        $this->assertSame('Standard', $vehicle->attributes['RearVisibilitySystem']);
         // Blank fields are omitted entirely.
         $this->assertArrayNotHasKey('Series', $vehicle->attributes);
         $this->assertArrayNotHasKey('EngineCylinders', $vehicle->attributes);
@@ -111,7 +112,7 @@ class VehicleDataTest extends TestCase
         $this->assertSame('ELLABELL', $vehicle->plant->city);
         $this->assertSame('UNITED STATES (USA)', $vehicle->plant->country);
 
-        $this->assertSame('Standard', $vehicle->safety->backupCamera);
+        $this->assertSame('Standard', $vehicle->safety->rearVisibilitySystem);
         $this->assertSame('All Rows', $vehicle->safety->airbagCurtain);
     }
 
@@ -180,7 +181,7 @@ class VehicleDataTest extends TestCase
         $this->assertSame(422, $array['engine']['horsepower']);
         $this->assertSame(4, $array['body']['doors']);
         $this->assertSame('UNITED STATES (USA)', $array['plant']['country']);
-        $this->assertSame('Standard', $array['safety']['backup_camera']);
+        $this->assertSame('Standard', $array['safety']['rear_visibility_system']);
 
         // The raw bag is not embedded, and long-tail fields do not leak to the top level.
         $this->assertArrayNotHasKey('attributes', $array);
@@ -188,6 +189,87 @@ class VehicleDataTest extends TestCase
 
         // JsonSerializable produces the same shape as toArray().
         $this->assertSame($array, json_decode(json_encode($vehicle), true));
+    }
+
+    /**
+     * @spec VD-007
+     */
+    public function test_identity_level_skips_the_groups_and_the_raw_bag(): void
+    {
+        $vehicle = VehicleData::fromFlatResult(self::VIN, $this->row(), AttributeLevel::Identity);
+
+        // Identity is still decoded...
+        $this->assertSame('HYUNDAI', $vehicle->make);
+        // ...but nothing beyond it is hydrated.
+        $this->assertSame([], $vehicle->attributes);
+        $this->assertNull($vehicle->engine->horsepower);
+        $this->assertNull($vehicle->body->doors);
+        // Groups remain non-null so reads stay null-safe at every level.
+        $this->assertInstanceOf(Engine::class, $vehicle->engine);
+        $this->assertInstanceOf(Plant::class, $vehicle->plant);
+    }
+
+    /**
+     * @spec VD-007
+     */
+    public function test_typed_level_includes_groups_but_not_the_raw_bag(): void
+    {
+        $vehicle = VehicleData::fromFlatResult(self::VIN, $this->row(), AttributeLevel::Typed);
+
+        $this->assertSame(422, $vehicle->engine->horsepower);
+        $this->assertSame(4, $vehicle->body->doors);
+        // The expensive raw passthrough is skipped.
+        $this->assertSame([], $vehicle->attributes);
+        $this->assertNull($vehicle->attribute('DestinationMarket'));
+    }
+
+    /**
+     * @spec VD-007
+     */
+    public function test_fromflatresult_defaults_to_the_full_level(): void
+    {
+        // The mapping utility itself defaults to Full (map everything). The *shipped* product
+        // default is 'identity', selected by config on the decoder — see VinLookupServiceTest.
+        $default = VehicleData::fromFlatResult(self::VIN, $this->row());
+        $full = VehicleData::fromFlatResult(self::VIN, $this->row(), AttributeLevel::Full);
+
+        $this->assertEquals($default, $full);
+        $this->assertSame(422, $full->engine->horsepower);
+        $this->assertSame('North America', $full->attribute('DestinationMarket'));
+    }
+
+    /**
+     * @spec VD-007
+     */
+    public function test_series_is_extended_identity_hydrated_from_the_typed_level(): void
+    {
+        $row = $this->row(['Series' => 'M Sport']);
+
+        $identity = VehicleData::fromFlatResult(self::VIN, $row, AttributeLevel::Identity);
+        $typed = VehicleData::fromFlatResult(self::VIN, $row, AttributeLevel::Typed);
+        $full = VehicleData::fromFlatResult(self::VIN, $row, AttributeLevel::Full);
+
+        // series is not part of the lean default set...
+        $this->assertNull($identity->series);
+        // ...but returns from the `typed` level up.
+        $this->assertSame('M Sport', $typed->series);
+        $this->assertSame('M Sport', $full->series);
+        // The other identity fields are present at every level.
+        $this->assertSame('HYUNDAI', $identity->make);
+        $this->assertSame('Calligraphy', $identity->trim);
+    }
+
+    /**
+     * @spec VD-007
+     */
+    public function test_attribute_level_resolves_from_config_with_a_full_fallback(): void
+    {
+        $this->assertSame(AttributeLevel::Identity, AttributeLevel::fromConfig('identity'));
+        $this->assertSame(AttributeLevel::Typed, AttributeLevel::fromConfig('typed'));
+        $this->assertSame(AttributeLevel::Full, AttributeLevel::fromConfig('full'));
+        // Missing/unknown values fall back to the safe default (more data, never less).
+        $this->assertSame(AttributeLevel::Full, AttributeLevel::fromConfig(null));
+        $this->assertSame(AttributeLevel::Full, AttributeLevel::fromConfig('nonsense'));
     }
 
     /**

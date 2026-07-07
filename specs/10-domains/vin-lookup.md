@@ -2,7 +2,7 @@
 
 **ID prefix:** `VIN`
 **Status:** Accepted
-**Version:** 2.0.1
+**Version:** 2.1.0
 **Last updated:** 2026-07-07
 **Owners:** @alwayscurious
 
@@ -35,8 +35,15 @@ code is shaped the way it is.
 - The driver-system, caching and config-model *design rationale* — see
   [ADR-0004](../40-adr/0004-manager-driver-system.md) (which supersedes parts of
   [ADR-0003](../40-adr/0003-caching-and-config-model.md))
-- Check-digit (9th position) verification — **explicitly not performed**; NHTSA validates it
-  server-side and reports it in `errorText`
+- The consumer-DX surface *design rationale* (test fake, validation rule, opt-in check digit,
+  typed failure reason, decode events) — see [ADR-0007](../40-adr/0007-consumer-dx-surface.md);
+  batch decoding rationale — see [ADR-0006](../40-adr/0006-batch-decoding.md)
+
+> **Superseded scope note.** Earlier versions of this spec listed check-digit (9th-position)
+> verification as *explicitly not performed*. As of v2.1.0 it is an **opt-in** capability
+> (`Rules\Vin::withCheckDigit()`, `Vin::hasValidCheckDigit()`) that is deliberately kept **out of**
+> structural validity (VIN-002 / VIN-003 are unchanged — `isValid()` never runs it). See VIN-019,
+> VIN-020 and [ADR-0007](../40-adr/0007-consumer-dx-surface.md).
 
 ## 3. Definitions
 
@@ -222,6 +229,103 @@ reduced to its first segment as the primary decode status on `VehicleData::$erro
 > **Rationale:** Only the first code is the primary status; the rest are secondary flags. `0`
 > means a clean decode.
 > **Test:** `tests/VinLookupServiceTest.php::test_it_decodes_a_vin_into_vehicle_data`
+
+---
+
+**[VIN-018]** The NHTSA decoder's transient-failure retry MUST be configurable via
+`vin.decoders.nhtsa.retry.times` (max attempts, default `2`) and `vin.decoders.nhtsa.retry.sleep`
+(milliseconds between attempts, default `200`). `times` of `1` MUST disable retrying.
+
+> **Rationale:** The retry policy was hard-coded; hosts on flaky links or tight latency budgets need
+> to tune or disable it without patching the decoder.
+> **Test:** `tests/RetryConfigTest.php::test_the_client_retries_transient_connection_failures_per_config`,
+> `tests/RetryConfigTest.php::test_a_retry_times_of_one_disables_retrying`
+
+### 4.7 Validation helpers
+
+**[VIN-019]** The package MUST ship a `Rules\Vin` validation rule implementing
+`Illuminate\Contracts\Validation\ValidationRule`. By default it MUST check **structure only** (the
+VIN-002 pattern, after normalization) — matching `isValid()` — and MUST NOT verify the check digit.
+
+> **Rationale:** Form validation should be a first-class, idiomatic rule object, not a hand-rolled
+> regex at every call site.
+> **Test:** `tests/VinRuleTest.php::test_the_rule_passes_a_structurally_valid_vin_after_normalizing`,
+> `tests/VinRuleTest.php::test_the_rule_fails_a_structurally_invalid_vin`
+
+---
+
+**[VIN-020]** Check-digit (ISO 3779 9th-position) verification MUST be available as an **opt-in**
+that never changes structural validity: `Rules\Vin::withCheckDigit()` and
+`Vin::hasValidCheckDigit()` MUST additionally verify it, while `isValid()` (VIN-003) MUST remain
+structural-only. Verification MUST perform no network call.
+
+> **Rationale:** Catch a transposed/typo'd VIN before spending a decode call, without rejecting the
+> otherwise-valid VINs whose check digit a manufacturer did not honor.
+> **Test:** `tests/VinRuleTest.php::test_the_check_digit_is_only_enforced_when_opted_in`,
+> `tests/VinRuleTest.php::test_has_valid_check_digit_is_stricter_than_is_valid`,
+> `tests/VinRuleTest.php::test_the_check_digit_helper_matches_the_iso_3779_standard`
+
+### 4.8 Failure signal
+
+**[VIN-021]** `VinLookupException` MUST carry a typed `VinFailureReason` on `->reason` set by every
+named constructor (`InvalidVin`, `Disabled`, `ConnectionFailed`, `RequestFailed`,
+`UnexpectedResponse`), so a caller can branch on the cause from one catch. The historical positional
+constructor (`message, code, previous`) MUST keep working (reason defaults).
+
+> **Rationale:** `tryLookup()` collapsing every failure to `null` forced two code paths; a typed
+> reason lets a single catch render the right message without string-matching.
+> **Test:** `tests/VinFailureReasonTest.php::test_an_invalid_vin_carries_the_invalid_reason`,
+> `tests/VinFailureReasonTest.php::test_the_disabled_gate_carries_the_disabled_reason`,
+> `tests/VinFailureReasonTest.php::test_an_http_failure_carries_the_transient_request_failed_reason`,
+> `tests/VinFailureReasonTest.php::test_the_historical_constructor_signature_still_works`
+
+### 4.9 Decode events
+
+**[VIN-022]** `VinLookupService` MUST dispatch `Events\VinDecoded` on a successful lookup (carrying
+the `VehicleData`, driver name, model-year hint and a `fromCache` flag), and `Events\VinDecodeFailed`
+on any failure (carrying the VIN, driver, `VinFailureReason` and the exception) — including failures
+that `tryLookup()` swallows.
+
+> **Rationale:** Hosts already running telemetry want a decode event to slot into, without wrapping
+> every call site; a swallowed `tryLookup()` failure must still be observable.
+> **Test:** `tests/DecodeEventsTest.php::test_a_successful_decode_dispatches_vin_decoded`,
+> `tests/DecodeEventsTest.php::test_a_cache_hit_dispatches_vin_decoded_flagged_from_cache`,
+> `tests/DecodeEventsTest.php::test_a_failed_decode_dispatches_vin_decode_failed_with_reason`
+
+### 4.10 Batch decoding
+
+**[VIN-023]** `lookupMany(array $vins, ?int $modelYear = null)` MUST decode many VINs and return
+`VehicleData` keyed by normalized VIN in input order. It MUST apply the enabled gate to the whole
+batch, normalize + validate + de-duplicate every VIN up front (throwing `VinLookupException` on the
+first structurally invalid VIN, before any provider call), serve cache hits per VIN, and decode only
+the misses — via `Contracts\BatchVinDecoder::decodeMany()` when the driver implements it, otherwise
+looping `decode()`. The NHTSA driver MUST implement `BatchVinDecoder` via `DecodeVinValuesBatch`.
+
+> **Rationale:** A fleet import should be one round-trip, not N — while inheriting the same gate,
+> validation and per-VIN caching, and while custom drivers keep working without batch support.
+> **Test:** `tests/BatchLookupTest.php::test_the_nhtsa_driver_decodes_a_batch_in_one_http_request`,
+> `tests/BatchLookupTest.php::test_lookup_many_uses_the_batch_capability_when_available`,
+> `tests/BatchLookupTest.php::test_lookup_many_reuses_cache_and_only_batches_the_misses`,
+> `tests/BatchLookupTest.php::test_lookup_many_falls_back_to_looping_decode_without_batch_support`,
+> `tests/BatchLookupTest.php::test_lookup_many_throws_on_a_structurally_invalid_vin_before_any_call`,
+> `tests/BatchLookupTest.php::test_lookup_many_honors_the_enabled_gate`
+
+### 4.11 Testing surface
+
+**[VIN-024]** `Vin::fake(array $map = [])` MUST swap the manager for a `Testing\VinFake` that routes
+every decode to preset `VehicleData` (or a preset `Throwable`) keyed by VIN — generating a
+`VehicleData::fake()` for unmapped VINs — with **no** network call, while still applying validation,
+the enabled gate and caching, and recording lookups for assertion (`assertLookedUp`,
+`assertNotLookedUp`, `assertNothingLookedUp`, `assertLookedUpCount`).
+
+> **Rationale:** Consumers should test their integration without reverse-engineering the NHTSA URL or
+> `Results.0` shape; faking at the decoder seam keeps their tests exercising the real
+> validation/gate/cache and decouples them from any driver's wire format.
+> **Test:** `tests/VinFakeTest.php::test_fake_returns_preset_data_with_no_http_call`,
+> `tests/VinFakeTest.php::test_fake_generates_data_for_unmapped_vins`,
+> `tests/VinFakeTest.php::test_fake_records_lookups_for_assertion`,
+> `tests/VinFakeTest.php::test_fake_still_applies_validation_and_the_enabled_gate`,
+> `tests/VinFakeTest.php::test_fake_can_simulate_a_failure`
 
 ## 5. Invariants
 

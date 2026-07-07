@@ -43,6 +43,9 @@ the published config file:
 | `VIN_DRIVER`        | `vin.driver`                   | `nhtsa`                            | Which decoder driver lookups use.                               |
 | `VIN_BASE_URL`      | `vin.decoders.nhtsa.base_url`  | `https://vpic.nhtsa.dot.gov/api`   | NHTSA vPIC API base URL.                                         |
 | `VIN_TIMEOUT`       | `vin.decoders.nhtsa.timeout`   | `10`                               | HTTP timeout (seconds) per decode request.                      |
+| `VIN_ATTRIBUTES`    | `vin.decoders.nhtsa.attributes`| `identity`                         | How much to hydrate: `identity`, `typed`, or `full` (see below).|
+| `VIN_RETRY_TIMES`   | `vin.decoders.nhtsa.retry.times`| `2`                               | Max NHTSA request attempts (`1` disables retrying).             |
+| `VIN_RETRY_SLEEP`   | `vin.decoders.nhtsa.retry.sleep`| `200`                             | Milliseconds between NHTSA retry attempts.                      |
 | `VIN_CACHE_STORE`   | `vin.cache.store`              | *(app default)*                    | Cache store for decodes (blank = the app's default store).      |
 | `VIN_CACHE_TTL`     | `vin.cache.ttl`                | `86400`                            | How long (seconds) a decoded VIN stays cached.                  |
 | `VIN_CACHE_VERSION` | `vin.cache.version`            | `1`                                | Bump to invalidate every cached decode at once.                 |
@@ -98,22 +101,99 @@ Vin::isValid('7yamyfs50ty009706'); // true — input is normalized first
 Vin::isValid('NOT-A-VIN');         // false
 ```
 
+### Validating form input — the `Vin` rule and check digit
+
+Validate a VIN field with the `Rules\Vin` rule object. By default it checks structure only (the same
+as `isValid()`); call `withCheckDigit()` to also verify the ISO 3779 9th-position check digit and
+catch a transposed/mistyped VIN *before* spending a decode call:
+
+```php
+use AlwaysCurious\Vin\Rules\Vin as VinRule;
+
+$request->validate([
+    'vin' => ['required', new VinRule],                 // structural
+    // 'vin' => ['required', (new VinRule)->withCheckDigit()], // + check digit
+]);
+```
+
+`isValid()` stays structural-only on purpose — some real, decodable VINs don't honor the check digit.
+When you want the stricter gate without the network, use `Vin::hasValidCheckDigit('…')`.
+
+### `lookupMany()` — decode a batch in one request
+
+Importing a fleet? `lookupMany()` decodes many VINs in a single provider round-trip (NHTSA's
+`DecodeVinValuesBatch`), reusing the per-VIN cache and only decoding the misses. It returns
+`VehicleData` keyed by normalized VIN, in input order:
+
+```php
+$vehicles = Vin::lookupMany(['7YAMYFS50TY009706', '1HGCM82633A004352']);
+
+$vehicles['7YAMYFS50TY009706']->make; // 'HYUNDAI'
+```
+
+The enabled gate and caching apply to the whole batch; a structurally invalid VIN throws before any
+request (pre-filter with `isValid()` if your input may be dirty). A custom driver that doesn't
+implement batching still works — `lookupMany()` transparently falls back to looping `lookup()`.
+
+### Knowing *why* a lookup failed
+
+`VinLookupException` carries a typed `->reason` (`VinFailureReason`), so a single `catch` can render
+the right message instead of pairing `isValid()` with `tryLookup()`:
+
+```php
+use AlwaysCurious\Vin\VinFailureReason;
+use AlwaysCurious\Vin\VinLookupException;
+
+try {
+    $vehicle = Vin::lookup($request->input('vin'));
+} catch (VinLookupException $e) {
+    return match ($e->reason) {
+        VinFailureReason::InvalidVin        => back()->withErrors(['vin' => 'That isn’t a valid VIN.']),
+        VinFailureReason::Disabled          => response('VIN decoding is temporarily disabled.', 503),
+        default                             => $e->reason->isTransient()
+            ? response('The VIN service is unavailable, try again shortly.', 503)
+            : throw $e,
+    };
+}
+```
+
+### Decode events
+
+The package dispatches `Events\VinDecoded` on every successful lookup (with a `fromCache` flag) and
+`Events\VinDecodeFailed` on every failure (with the `VinFailureReason` and the exception) — the latter
+fires even when `tryLookup()` swallows the error. Wire them to your own telemetry:
+
+```php
+use AlwaysCurious\Vin\Events\VinDecoded;
+use Illuminate\Support\Facades\Event;
+
+Event::listen(function (VinDecoded $event) {
+    Telemetry::record('vin.decoded', [
+        'vin' => $event->vehicle->vin,
+        'driver' => $event->driver,
+        'cached' => $event->fromCache,
+    ]);
+});
+```
+
 ### The `VehicleData` value object
 
-`lookup()` / `tryLookup()` return an immutable `VehicleData`:
+`lookup()` / `tryLookup()` return an immutable `VehicleData`. **By default** (`VIN_ATTRIBUTES=identity`)
+it carries the clean core set that covers ~80% of use cases:
 
 ```php
 $vehicle->vin;           // '7YAMYFS50TY009706'
 $vehicle->year;          // 2026 (int|null)
 $vehicle->make;          // 'HYUNDAI'
 $vehicle->model;         // 'Ioniq 9'
-$vehicle->series;        // string|null
 $vehicle->trim;          // 'Calligraphy'
 $vehicle->bodyClass;     // 'Sport Utility Vehicle (SUV)/Multi-Purpose Vehicle (MPV)'
-$vehicle->manufacturer;  // 'HYUNDAI MOTOR GROUP METAPLANT AMERICA'
 $vehicle->vehicleType;   // 'MULTIPURPOSE PASSENGER VEHICLE (MPV)'
+$vehicle->manufacturer;  // 'HYUNDAI MOTOR GROUP METAPLANT AMERICA'
 $vehicle->errorCode;     // 0 (int|null) — primary NHTSA decode status
 $vehicle->errorText;     // string|null
+
+$vehicle->series;        // string|null — hydrated from the 'typed' level up (see below)
 
 $vehicle->decodedSuccessfully(); // true when NHTSA reports a clean decode (error code 0)
 $vehicle->isFullyIdentified();   // true when year + make + model are all present
@@ -122,10 +202,32 @@ $vehicle->toArray();  // snake_cased array (identity + nested groups; see below)
 json_encode($vehicle); // JsonSerializable — same shape as toArray()
 ```
 
+Want engine/safety/body/plant specs, `series`, or the raw NHTSA fields too? Raise the level with
+`VIN_ATTRIBUTES` (see [Trim the response](#only-need-yearmakemodel-trim-the-response)) — everything
+below this line needs `typed` or `full`.
+
 `decodedSuccessfully()` is stricter than `isFullyIdentified()`: NHTSA can return
 a full year/make/model while still flagging a non-blocking warning (e.g. a model
 year mismatch), in which case `isFullyIdentified()` is `true` but
 `decodedSuccessfully()` is `false`.
+
+#### Filling a model — `only()` / `toColumns()`
+
+To persist a decode, project the identity fields into a `Model::fill()`-ready array. `only()` keeps
+the property names; `toColumns()` re-keys them onto your column names:
+
+```php
+$vehicle->only(['make', 'model', 'year', 'trim']);
+// ['make' => 'HYUNDAI', 'model' => 'Ioniq 9', 'year' => 2026, 'trim' => 'Calligraphy']
+
+$vehicle->toColumns(['year' => 'model_year', 'make' => 'make', 'bodyClass' => 'body_class']);
+// ['model_year' => 2026, 'make' => 'HYUNDAI', 'body_class' => 'Sport Utility Vehicle (SUV)/...']
+
+$car->fill($vehicle->toColumns([...]));
+```
+
+Both throw on an unknown field (so a typo surfaces), and both project only the flat identity fields —
+your app keeps ownership of *which* columns win when merging into an existing row.
 
 ### Extended attributes — engine, safety, body, plant
 
@@ -146,7 +248,7 @@ $vehicle->body->seats;                  // int|null
 $vehicle->body->gvwr;                   // 'Class 2E: 6,001 - 7,000 lb ...'
 
 $vehicle->safety->airbagCurtain;        // 'All Rows'
-$vehicle->safety->backupCamera;         // 'Standard'
+$vehicle->safety->rearVisibilitySystem; // 'Standard' — NHTSA's backup-camera field
 $vehicle->safety->electronicStabilityControl; // 'Standard'
 
 $vehicle->plant->city;                  // 'ELLABELL'
@@ -174,6 +276,26 @@ Raw values are strings exactly as NHTSA sent them (trimmed); use the typed group
 you want real `int` / `float` types. The raw bag is **not** embedded in `toArray()` /
 `json_encode()` — it's reachable only via `->attributes` and `attribute()`, so your serialized
 payloads stay curated and stable.
+
+### Only need year/make/model? Trim the response
+
+The default is deliberately lean. Building the typed groups — and especially keeping the full raw
+passthrough — costs a little CPU per decode and, more importantly, makes each **cached** row
+larger. Step up with `VIN_ATTRIBUTES` (`vin.decoders.nhtsa.attributes`) only when you need more:
+
+| `VIN_ATTRIBUTES`     | Core identity | `series` | Typed groups | Raw `attributes` | Use when… |
+| -------------------- | :-----------: | :------: | :----------: | :--------------: | --------- |
+| `identity` (default) | ✓             |          |              |                  | You read year/make/model/trim/body class/vehicle type/manufacturer. Smallest cache, least work. |
+| `typed`              | ✓             | ✓        | ✓            |                  | You also want `series` and engine/safety/body/plant typed, but never the long tail. |
+| `full`               | ✓             | ✓        | ✓            | ✓                | You want everything, including fields not lifted into a typed group. |
+
+Core identity = year, make, model, trim, body class, vehicle type, manufacturer (plus VIN and
+decode status, which are always present). At any level the groups are still present (never null) —
+lighter levels just leave their fields `null` and keep `->attributes` empty, so
+`$vehicle->engine->horsepower` is always safe to read.
+
+> Because the level changes what's stored, bump `VIN_CACHE_VERSION` when you change it so already
+> cached VINs are re-decoded at the new level (see below).
 
 ### Invalidating cached decodes
 
@@ -271,8 +393,31 @@ your `decode()` doesn't have to make an HTTP call at all.
 
 ## Testing
 
-Because the package uses Laravel's HTTP client, you can fake the NHTSA API in
-your own tests:
+### `Vin::fake()` — the easy way
+
+Swap the decoder for a fake so your tests never touch the network or the NHTSA wire format. Map a VIN
+to a `VehicleData` (build one with `VehicleData::fake()`); unmapped VINs return a generated fake. The
+fake still runs the real validation, enabled gate and caching, and records lookups for assertion:
+
+```php
+use AlwaysCurious\Vin\Facades\Vin;
+use AlwaysCurious\Vin\VehicleData;
+
+$fake = Vin::fake([
+    '1FTFW1E50NKF12345' => VehicleData::fake(make: 'Ford', model: 'F-150'),
+]);
+
+$vehicle = Vin::lookup('1FTFW1E50NKF12345'); // 'Ford' — no HTTP call
+
+$fake->assertLookedUp('1FTFW1E50NKF12345');
+$fake->assertLookedUpCount(1);
+```
+
+Map a VIN to a `Throwable` to exercise a failure path (`Vin::fake(['…' => VinLookupException::requestFailed('…', 503)])`).
+
+### Faking the HTTP layer directly
+
+Prefer to assert on the wire? The package uses Laravel's HTTP client, so you can fake NHTSA instead:
 
 ```php
 use AlwaysCurious\Vin\Facades\Vin;
@@ -298,6 +443,13 @@ Run the package's own suite with:
 composer test   # vendor/bin/phpunit
 composer lint   # vendor/bin/pint
 ```
+
+## Versioning
+
+This package follows [Semantic Versioning](https://semver.org). As of **1.0.0** the public API — the
+`Vin` facade, the `Contracts\VinDecoder` driver seam, `VehicleData`, `VinLookupException`, and the
+`vin.*` config keys / env vars — is stable and covered by SemVer. See the [CHANGELOG](CHANGELOG.md)
+for what each release adds.
 
 ## License
 

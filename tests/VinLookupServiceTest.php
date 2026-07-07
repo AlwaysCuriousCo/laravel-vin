@@ -27,6 +27,9 @@ class VinLookupServiceTest extends TestCase
                 'VehicleType' => 'MULTIPURPOSE PASSENGER VEHICLE (MPV)',
                 'ErrorCode' => '0,12',
                 'ErrorText' => '0 - VIN decoded clean. Check Digit (9th position) is correct;',
+                'EngineHP' => '422',
+                'DriveType' => 'AWD',
+                'DestinationMarket' => 'North America',
             ], $overrides)],
         ];
     }
@@ -52,6 +55,71 @@ class VinLookupServiceTest extends TestCase
         $this->assertSame('MULTIPURPOSE PASSENGER VEHICLE (MPV)', $vehicle->vehicleType);
         $this->assertSame(0, $vehicle->errorCode);
         $this->assertTrue($vehicle->decodedSuccessfully());
+    }
+
+    /**
+     * @spec VD-007
+     */
+    public function test_the_default_level_is_identity(): void
+    {
+        Http::fake(['vpic.nhtsa.dot.gov/*' => Http::response($this->fakeDecodeResponse(['Series' => 'Line 5']))]);
+
+        // No VIN_ATTRIBUTES configured — the shipped default is 'identity'.
+        $vehicle = Vin::lookup(self::VIN);
+
+        $this->assertSame('HYUNDAI', $vehicle->make);
+        $this->assertSame('Calligraphy', $vehicle->trim);
+        // series is not part of the default set, and neither are the groups or the raw bag.
+        $this->assertNull($vehicle->series);
+        $this->assertNull($vehicle->engine->horsepower);
+        $this->assertSame([], $vehicle->attributes);
+    }
+
+    /**
+     * @spec VD-007
+     */
+    public function test_the_identity_level_omits_series_groups_and_the_raw_bag(): void
+    {
+        Http::fake(['vpic.nhtsa.dot.gov/*' => Http::response($this->fakeDecodeResponse(['Series' => 'Line 5']))]);
+        config(['vin.decoders.nhtsa.attributes' => 'identity']);
+
+        $vehicle = Vin::lookup(self::VIN);
+
+        $this->assertSame('HYUNDAI', $vehicle->make);
+        $this->assertNull($vehicle->series);
+        $this->assertNull($vehicle->engine->horsepower);
+        $this->assertSame([], $vehicle->attributes);
+    }
+
+    /**
+     * @spec VD-007
+     */
+    public function test_the_typed_attribute_level_adds_series_and_groups_but_not_the_raw_bag(): void
+    {
+        Http::fake(['vpic.nhtsa.dot.gov/*' => Http::response($this->fakeDecodeResponse(['Series' => 'Line 5']))]);
+        config(['vin.decoders.nhtsa.attributes' => 'typed']);
+
+        $vehicle = Vin::lookup(self::VIN);
+
+        $this->assertSame('Line 5', $vehicle->series);
+        $this->assertSame(422, $vehicle->engine->horsepower);
+        $this->assertSame('AWD', $vehicle->engine->driveType);
+        $this->assertSame([], $vehicle->attributes);
+    }
+
+    /**
+     * @spec VD-007
+     */
+    public function test_the_full_level_exposes_series_groups_and_the_raw_passthrough(): void
+    {
+        Http::fake(['vpic.nhtsa.dot.gov/*' => Http::response($this->fakeDecodeResponse(['Series' => 'Line 5']))]);
+        config(['vin.decoders.nhtsa.attributes' => 'full']);
+
+        $vehicle = Vin::lookup(self::VIN);
+
+        $this->assertSame('Line 5', $vehicle->series);
+        $this->assertSame(422, $vehicle->engine->horsepower);
+        $this->assertSame('North America', $vehicle->attribute('DestinationMarket'));
     }
 
     /**

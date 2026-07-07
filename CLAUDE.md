@@ -42,7 +42,7 @@ before tests run, so run `composer lint` before pushing.
 | `Contracts/VinDecoder.php` | The driver seam: `decode(string $vin, ?int $modelYear): VehicleData`. Host apps register their own via `Vin::extend()`. |
 | `Decoders/NhtsaVinDecoder.php` | Default `nhtsa` driver. Owns the NHTSA vPIC HTTP call, retry and response mapping. |
 | `VehicleData.php` | Immutable `final readonly` value object returned by lookups. Typed identity + the `engine`/`safety`/`body`/`plant` groups + a raw `attributes` passthrough. `Arrayable` + `JsonSerializable`. |
-| `Vehicle/*.php` | The typed attribute groups (`Engine`, `Safety`, `Body`, `Plant`) and the `ParsesNhtsaFields` row-extraction trait they share with `VehicleData`. |
+| `Vehicle/*.php` | The typed attribute groups (`Engine`, `Safety`, `Body`, `Plant`), the `ParsesNhtsaFields` row-extraction trait they share with `VehicleData`, and the `AttributeLevel` enum (`identity`/`typed`/`full`) that bounds how much a decode hydrates. |
 | `VinLookupException.php` | `RuntimeException` with a named constructor per failure mode. |
 | `VinServiceProvider.php` | Merges + publishes `config/vin.php`, registers the `VinManager` singleton (+ `vin` alias) and the default-driver `VinLookupService` binding. |
 

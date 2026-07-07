@@ -33,6 +33,24 @@ return [
 
             // HTTP timeout (seconds) per decode request.
             'timeout' => (int) env('VIN_TIMEOUT', 10),
+
+            // How much of each decode to hydrate onto VehicleData:
+            //   'identity' — year/make/model/trim/body class/vehicle type/manufacturer
+            //                (the ~80% set; VIN + decode status are always present)
+            //   'typed'    — the above plus series and the engine/safety/body/plant groups
+            //   'full'     — the above plus the raw attribute passthrough (every NHTSA field)
+            // 'identity' is the default: clean and cheap. Step up when you need more. Lighter
+            // levels skip that mapping work and cache a smaller row; changing the level changes
+            // the stored shape, so bump VIN_CACHE_VERSION to re-decode already-cached VINs.
+            'attributes' => env('VIN_ATTRIBUTES', 'identity'),
+
+            // Transient-failure retry for each decode request. NHTSA occasionally blips; the HTTP
+            // client retries this many times, sleeping this many milliseconds between attempts,
+            // before a failure surfaces as VinLookupException::requestFailed / connectionFailed.
+            'retry' => [
+                'times' => (int) env('VIN_RETRY_TIMES', 2),
+                'sleep' => (int) env('VIN_RETRY_SLEEP', 200),
+            ],
         ],
 
     ],
