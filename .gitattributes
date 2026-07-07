@@ -9,3 +9,5 @@
 /.gitignore         export-ignore
 /phpunit.xml        export-ignore
 /pint.json          export-ignore
+/CLAUDE.md          export-ignore
+/specs              export-ignore

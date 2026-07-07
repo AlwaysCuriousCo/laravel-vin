@@ -10,11 +10,21 @@ class VinServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/vin.php', 'vin');
 
-        // Bind (not singleton) so each resolve constructs a fresh service that
-        // re-reads the current config(). A host app can override vin.* at
-        // runtime — e.g. from database-backed settings — after boot without a
-        // stale instance lingering in the container.
-        $this->app->bind(VinLookupService::class, fn () => new VinLookupService);
+        // The driver registry. Singleton so custom drivers registered via
+        // VinManager::extend() / Vin::extend() (typically in a host service
+        // provider) persist for the lifetime of the app.
+        $this->app->singleton(VinManager::class, fn ($app) => new VinManager($app));
+        $this->app->alias(VinManager::class, 'vin');
+
+        // Resolve the default-driver lookup service for constructor injection and
+        // app(VinLookupService::class). The manager builds a fresh service each
+        // call, so the enabled gate and cache config are re-read at runtime.
+        $this->app->bind(VinLookupService::class, function ($app): VinLookupService {
+            /** @var VinManager $manager */
+            $manager = $app->make(VinManager::class);
+
+            return $manager->using();
+        });
     }
 
     public function boot(): void

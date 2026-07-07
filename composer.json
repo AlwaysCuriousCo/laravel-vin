@@ -52,7 +52,10 @@
         "laravel": {
             "providers": [
                 "AlwaysCurious\\Vin\\VinServiceProvider"
-            ]
+            ],
+            "aliases": {
+                "Vin": "AlwaysCurious\\Vin\\Facades\\Vin"
+            }
         }
     },
     "minimum-stability": "stable",
