@@ -41,7 +41,8 @@ before tests run, so run `composer lint` before pushing.
 | `VinLookupService.php` | The per-driver workflow. Owns validation, the enabled gate and caching; delegates the decode to a `VinDecoder`. Pure constructor-injected (no `config()` of its own); the manager builds it. |
 | `Contracts/VinDecoder.php` | The driver seam: `decode(string $vin, ?int $modelYear): VehicleData`. Host apps register their own via `Vin::extend()`. |
 | `Decoders/NhtsaVinDecoder.php` | Default `nhtsa` driver. Owns the NHTSA vPIC HTTP call, retry and response mapping. |
-| `VehicleData.php` | Immutable `final readonly` value object returned by lookups. `Arrayable` + `JsonSerializable`. |
+| `VehicleData.php` | Immutable `final readonly` value object returned by lookups. Typed identity + the `engine`/`safety`/`body`/`plant` groups + a raw `attributes` passthrough. `Arrayable` + `JsonSerializable`. |
+| `Vehicle/*.php` | The typed attribute groups (`Engine`, `Safety`, `Body`, `Plant`) and the `ParsesNhtsaFields` row-extraction trait they share with `VehicleData`. |
 | `VinLookupException.php` | `RuntimeException` with a named constructor per failure mode. |
 | `VinServiceProvider.php` | Merges + publishes `config/vin.php`, registers the `VinManager` singleton (+ `vin` alias) and the default-driver `VinLookupService` binding. |
 
@@ -114,9 +115,10 @@ via `Vin::extend()` and selects it with `vin.driver` to decode elsewhere.
 
 ## Specs — the normative source of truth
 
-Enforceable behavior lives in [`specs/`](specs/) as `[VIN-NNN]` requirements
-([`specs/10-domains/vin-lookup.md`](specs/10-domains/vin-lookup.md)); design rationale lives in
-[`specs/40-adr/`](specs/40-adr/). This file and the README are *informative* — they narrate and
+Enforceable behavior lives in [`specs/`](specs/) as `[VIN-NNN]` lookup requirements
+([`specs/10-domains/vin-lookup.md`](specs/10-domains/vin-lookup.md)) and `[VD-NNN]`
+value-object requirements ([`specs/10-domains/vehicle-data.md`](specs/10-domains/vehicle-data.md));
+design rationale lives in [`specs/40-adr/`](specs/40-adr/). This file and the README are *informative* — they narrate and
 explain, and point at spec IDs rather than restating requirements as rules. The "deliberate
 decisions" section above is the narrative companion to ADR-0002/0003.
 

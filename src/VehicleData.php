@@ -2,16 +2,33 @@
 
 namespace AlwaysCurious\Vin;
 
+use AlwaysCurious\Vin\Vehicle\Body;
+use AlwaysCurious\Vin\Vehicle\Engine;
+use AlwaysCurious\Vin\Vehicle\ParsesNhtsaFields;
+use AlwaysCurious\Vin\Vehicle\Plant;
+use AlwaysCurious\Vin\Vehicle\Safety;
 use Illuminate\Contracts\Support\Arrayable;
 use JsonSerializable;
 
 /**
- * The subset of NHTSA vPIC decode results this package exposes.
+ * The decoded vehicle: a curated typed identity, four typed attribute groups (engine,
+ * safety, body, plant) and a raw passthrough of every non-empty provider field.
  *
- * @implements Arrayable<string, int|string|null>
+ * The identity fields and the groups are typed projections of the same NHTSA
+ * "DecodeVinValues" row; `$attributes` keeps the full row verbatim so the long tail we do
+ * not lift into a property stays reachable via {@see attribute()}. See the vehicle-data spec
+ * (VD-NNN) and ADR-0005.
+ *
+ * @implements Arrayable<string, mixed>
  */
 final readonly class VehicleData implements Arrayable, JsonSerializable
 {
+    use ParsesNhtsaFields;
+
+    /**
+     * @param  array<string, string>  $attributes  Every non-empty provider field, keyed by
+     *                                             its original NHTSA field name (trimmed strings).
+     */
     public function __construct(
         public string $vin,
         public ?int $year,
@@ -24,6 +41,11 @@ final readonly class VehicleData implements Arrayable, JsonSerializable
         public ?string $errorText,
         public ?string $manufacturer = null,
         public ?string $vehicleType = null,
+        public Engine $engine = new Engine,
+        public Safety $safety = new Safety,
+        public Body $body = new Body,
+        public Plant $plant = new Plant,
+        public array $attributes = [],
     ) {}
 
     /**
@@ -33,32 +55,40 @@ final readonly class VehicleData implements Arrayable, JsonSerializable
      */
     public static function fromFlatResult(string $vin, array $result): self
     {
-        $value = static function (string $key) use ($result): ?string {
-            $raw = $result[$key] ?? null;
-
-            return filled($raw) ? trim((string) $raw) : null;
-        };
-
-        $year = $value('ModelYear');
-
         // NHTSA returns ErrorCode as a comma-separated list (e.g. "0,12");
         // the first entry is the primary decode status.
-        $errorCode = $value('ErrorCode');
+        $errorCode = self::str($result, 'ErrorCode');
         $primaryError = $errorCode !== null ? (int) explode(',', $errorCode)[0] : null;
 
         return new self(
             vin: $vin,
-            year: $year !== null ? (int) $year : null,
-            make: $value('Make'),
-            model: $value('Model'),
-            series: $value('Series'),
-            trim: $value('Trim'),
-            bodyClass: $value('BodyClass'),
+            year: self::int($result, 'ModelYear'),
+            make: self::str($result, 'Make'),
+            model: self::str($result, 'Model'),
+            series: self::str($result, 'Series'),
+            trim: self::str($result, 'Trim'),
+            bodyClass: self::str($result, 'BodyClass'),
             errorCode: $primaryError,
-            errorText: $value('ErrorText'),
-            manufacturer: $value('Manufacturer'),
-            vehicleType: $value('VehicleType'),
+            errorText: self::str($result, 'ErrorText'),
+            manufacturer: self::str($result, 'Manufacturer'),
+            vehicleType: self::str($result, 'VehicleType'),
+            engine: Engine::fromRow($result),
+            safety: Safety::fromRow($result),
+            body: Body::fromRow($result),
+            plant: Plant::fromRow($result),
+            attributes: self::keepNonEmpty($result),
         );
+    }
+
+    /**
+     * A raw provider field by its exact NHTSA field name, or $default when blank/absent.
+     *
+     * The escape hatch for fields not lifted into a typed property (e.g. 'DestinationMarket',
+     * 'NCSABodyType', 'Note').
+     */
+    public function attribute(string $key, ?string $default = null): ?string
+    {
+        return $this->attributes[$key] ?? $default;
     }
 
     /**
@@ -83,7 +113,10 @@ final readonly class VehicleData implements Arrayable, JsonSerializable
     }
 
     /**
-     * @return array<string, int|string|null>
+     * The identity fields plus the four nested typed groups. The raw $attributes bag is
+     * intentionally not embedded here — reach it via ->attributes / attribute() (VD-005).
+     *
+     * @return array<string, mixed>
      */
     public function toArray(): array
     {
@@ -99,14 +132,37 @@ final readonly class VehicleData implements Arrayable, JsonSerializable
             'error_text' => $this->errorText,
             'manufacturer' => $this->manufacturer,
             'vehicle_type' => $this->vehicleType,
+            'engine' => $this->engine->toArray(),
+            'safety' => $this->safety->toArray(),
+            'body' => $this->body->toArray(),
+            'plant' => $this->plant->toArray(),
         ];
     }
 
     /**
-     * @return array<string, int|string|null>
+     * @return array<string, mixed>
      */
     public function jsonSerialize(): array
     {
         return $this->toArray();
+    }
+
+    /**
+     * Every non-empty row field, trimmed to a string, keyed by its NHTSA field name.
+     *
+     * @param  array<string, mixed>  $result
+     * @return array<string, string>
+     */
+    private static function keepNonEmpty(array $result): array
+    {
+        $attributes = [];
+
+        foreach ($result as $key => $raw) {
+            if (filled($raw)) {
+                $attributes[$key] = trim((string) $raw);
+            }
+        }
+
+        return $attributes;
     }
 }

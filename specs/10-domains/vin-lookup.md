@@ -2,8 +2,8 @@
 
 **ID prefix:** `VIN`
 **Status:** Accepted
-**Version:** 2.0.0
-**Last updated:** 2026-07-06
+**Version:** 2.0.1
+**Last updated:** 2026-07-07
 **Owners:** @alwayscurious
 
 ---
@@ -27,9 +27,9 @@ code is shaped the way it is.
 - The default `Decoders\NhtsaVinDecoder` request/response contract and error mapping
 
 **Out of scope:**
-- The precise field mapping / nullability of `VehicleData` and the
-  `decodedSuccessfully()` vs `isFullyIdentified()` distinction (documented in the README;
-  candidate for a future `vehicle-data.md` spec if it grows testable rules)
+- The field mapping / nullability of `VehicleData`, its typed attribute groups, the raw
+  attribute passthrough, and the `decodedSuccessfully()` vs `isFullyIdentified()` distinction —
+  now specified in [`vehicle-data.md`](vehicle-data.md) (`VD-NNN`)
 - NHTSA-specific decisions and the rationale for the decoder seam — see
   [ADR-0002](../40-adr/0002-nhtsa-vpic-provider.md)
 - The driver-system, caching and config-model *design rationale* — see
@@ -249,6 +249,7 @@ reduced to its first segment as the primary decode status on `VehicleData::$erro
 
 ## 7. Related
 
+- Spec: [Vehicle Data spec](vehicle-data.md) — the `VehicleData` field mapping, typed groups and raw passthrough
 - ADR: [ADR-0002 — NHTSA vPIC provider & the decoder seam](../40-adr/0002-nhtsa-vpic-provider.md)
 - ADR: [ADR-0003 — Caching & config model](../40-adr/0003-caching-and-config-model.md) (superseded in part)
 - ADR: [ADR-0004 — Manager driver system](../40-adr/0004-manager-driver-system.md)

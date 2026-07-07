@@ -118,7 +118,7 @@ $vehicle->errorText;     // string|null
 $vehicle->decodedSuccessfully(); // true when NHTSA reports a clean decode (error code 0)
 $vehicle->isFullyIdentified();   // true when year + make + model are all present
 
-$vehicle->toArray();  // snake_cased array
+$vehicle->toArray();  // snake_cased array (identity + nested groups; see below)
 json_encode($vehicle); // JsonSerializable — same shape as toArray()
 ```
 
@@ -126,6 +126,54 @@ json_encode($vehicle); // JsonSerializable — same shape as toArray()
 a full year/make/model while still flagging a non-blocking warning (e.g. a model
 year mismatch), in which case `isFullyIdentified()` is `true` but
 `decodedSuccessfully()` is `false`.
+
+### Extended attributes — engine, safety, body, plant
+
+`DecodeVinValues` returns far more than identity. Beyond the fields above, four typed,
+always-present groups carry the commonly-used specs. Each field is `null` when NHTSA has no
+value for it — a missing numeric field (doors, horsepower, …) is `null`, never `0`:
+
+```php
+$vehicle->engine->fuelTypePrimary;      // 'Electric'
+$vehicle->engine->horsepower;           // int|null   e.g. 422
+$vehicle->engine->displacementL;        // float|null e.g. 5.0
+$vehicle->engine->driveType;            // 'AWD'
+$vehicle->engine->transmissionStyle;    // 'Automatic'
+$vehicle->engine->electrificationLevel; // 'BEV (Battery Electric Vehicle)'
+
+$vehicle->body->doors;                  // int|null   e.g. 4
+$vehicle->body->seats;                  // int|null
+$vehicle->body->gvwr;                   // 'Class 2E: 6,001 - 7,000 lb ...'
+
+$vehicle->safety->airbagCurtain;        // 'All Rows'
+$vehicle->safety->backupCamera;         // 'Standard'
+$vehicle->safety->electronicStabilityControl; // 'Standard'
+
+$vehicle->plant->city;                  // 'ELLABELL'
+$vehicle->plant->country;               // 'UNITED STATES (USA)'
+```
+
+Each group is itself `Arrayable` + `JsonSerializable`. `toArray()` / `json_encode()` on the
+`VehicleData` nest them under `engine`, `safety`, `body` and `plant`.
+
+### Raw attribute passthrough
+
+For anything NHTSA returns that the typed groups don't surface (e.g. `DestinationMarket`,
+`NCSABodyType`, `Note`), the complete non-empty response row is kept verbatim, keyed by the
+original NHTSA field name:
+
+```php
+$vehicle->attribute('DestinationMarket');       // 'North America'
+$vehicle->attribute('NoSuchField');             // null
+$vehicle->attribute('NoSuchField', 'unknown');  // 'unknown' — optional default
+
+$vehicle->attributes; // ['Make' => 'HYUNDAI', 'EngineHP' => '422', ...] full non-empty row
+```
+
+Raw values are strings exactly as NHTSA sent them (trimmed); use the typed groups above when
+you want real `int` / `float` types. The raw bag is **not** embedded in `toArray()` /
+`json_encode()` — it's reachable only via `->attributes` and `attribute()`, so your serialized
+payloads stay curated and stable.
 
 ### Invalidating cached decodes
 

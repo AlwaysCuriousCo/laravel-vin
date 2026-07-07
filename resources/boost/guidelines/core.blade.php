@@ -78,6 +78,31 @@ $vehicle->isFullyIdentified();   // true when year + make + model are all presen
 </code-snippet>
 @endverbatim
 
+### Extended attributes and the raw passthrough
+
+Beyond identity, `VehicleData` exposes four always-present typed groups — `engine`, `safety`,
+`body`, `plant` — and a raw passthrough of every non-empty NHTSA field. Prefer a typed group
+field when one exists (it is correctly typed and nullable); fall back to `attribute()` for the
+long tail. Every group field is `null` when NHTSA has no value — a numeric field is never
+coerced to `0`. `toArray()` / `json_encode()` nest the groups but do **not** include the raw
+bag; reach it only via `->attributes` / `attribute()`.
+
+@verbatim
+<code-snippet name="Reading extended attributes" lang="php">
+$vehicle->engine->horsepower;        // int|null   e.g. 422
+$vehicle->engine->displacementL;     // float|null e.g. 5.0
+$vehicle->engine->fuelTypePrimary;   // string|null e.g. 'Electric'
+$vehicle->body->doors;               // int|null
+$vehicle->safety->backupCamera;      // string|null e.g. 'Standard'
+$vehicle->plant->country;            // string|null e.g. 'UNITED STATES (USA)'
+
+// Long tail not lifted into a typed property — raw NHTSA field name, string value:
+$vehicle->attribute('DestinationMarket');      // string|null
+$vehicle->attribute('NCSABodyType', 'unknown'); // optional default when blank/absent
+$vehicle->attributes;                          // full non-empty row, keyed by NHTSA field name
+</code-snippet>
+@endverbatim
+
 ### Configuration
 
 Everything is env-driven; publish the config only to change structure:
