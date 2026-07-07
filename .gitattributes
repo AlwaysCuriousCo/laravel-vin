@@ -3,6 +3,7 @@
 
 # Exclude development-only files from the distributed package.
 /.github            export-ignore
+/art                export-ignore
 /tests              export-ignore
 /.editorconfig      export-ignore
 /.gitattributes     export-ignore
