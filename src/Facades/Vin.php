@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static array<string, \AlwaysCurious\Vin\VehicleData> lookupMany(array $vins, ?int $modelYear = null)
  * @method static bool isValid(string $vin)
  * @method static bool hasValidCheckDigit(string $vin)
+ * @method static \AlwaysCurious\Vin\VinValidation inspect(string $vin)
  * @method static \AlwaysCurious\Vin\VinLookupService using(?string $driver = null)
  * @method static \AlwaysCurious\Vin\Contracts\VinDecoder driver(string|null $driver = null)
  * @method static \AlwaysCurious\Vin\VinManager extend(string $driver, \Closure $callback)

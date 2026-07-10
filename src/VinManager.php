@@ -79,6 +79,16 @@ class VinManager extends Manager
     }
 
     /**
+     * Inspect a VIN with every offline check and return a {@see VinValidation} reporting the overall
+     * verdict, the structural and check-digit dimensions, and a typed reason per failure (no
+     * decoder/network call).
+     */
+    public function inspect(string $vin): VinValidation
+    {
+        return $this->using()->inspect($vin);
+    }
+
+    /**
      * Get a lookup service bound to a specific driver (the default driver when null),
      * without changing the default. A fresh service is returned each call so the gate
      * and cache config are read live.

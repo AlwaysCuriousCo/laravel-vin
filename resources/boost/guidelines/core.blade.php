@@ -36,6 +36,11 @@ $vehicle = Vin::lookup('7YAMYFS50TY009706', 2026);
   batch in one request (keyed by normalized VIN, input order). Use for fleet/bulk imports.
 - `Vin::hasValidCheckDigit(string $vin): bool` — stricter than `isValid()`; also verifies the ISO
   3779 9th-position check digit. **No network call**. `isValid()` stays structural-only on purpose.
+- `Vin::inspect(string $vin): VinValidation` — the offline validator that reports *why* a VIN is
+  invalid, not just a bool: `->valid` (structure + check digit), `->structurallyValid`,
+  `->checkDigitValid`, and `->errors` (typed `VinValidationError`: `WrongLength` / `IllegalCharacters`
+  / `InvalidCheckDigit`, with `->messages()` for display). **No network call**. Use when form feedback
+  must distinguish wrong length / illegal character / bad check digit.
 - `Vin::using(string $driver)` — a lookup service on a specific driver for one call, without
   changing the default (`Vin::using('acme')->lookup($vin)`).
 

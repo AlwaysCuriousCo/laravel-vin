@@ -121,6 +121,34 @@ $request->validate([
 `isValid()` stays structural-only on purpose — some real, decodable VINs don't honor the check digit.
 When you want the stricter gate without the network, use `Vin::hasValidCheckDigit('…')`.
 
+### `inspect()` — validate with useful feedback
+
+When a bare `true`/`false` isn't enough — you want to tell the user *why* their VIN was rejected —
+`Vin::inspect()` runs every offline check and returns a `VinValidation` reporting the overall verdict,
+the structural and check-digit dimensions separately, and a typed reason per failure. No network call:
+
+```php
+$result = Vin::inspect('7YAMYFS50TY009706');
+
+$result->valid;             // true  — structurally valid AND correct check digit
+$result->structurallyValid; // true  — always equals Vin::isValid()
+$result->checkDigitValid;   // true
+$result->errors;            // []
+
+// A structurally valid VIN with a mistyped check digit:
+$bad = Vin::inspect('7YAMYFS51TY009706');
+$bad->fails();              // true
+$bad->messages();           // ['The VIN check digit (9th character) does not match; the VIN may be mistyped.']
+
+// Each failure mode is distinguishable:
+Vin::inspect('IYAMYFS50TY009706')->errors; // [VinValidationError::IllegalCharacters]  (I/O/Q rejected)
+Vin::inspect('7YAMYFS50TY00970')->errors;  // [VinValidationError::WrongLength]         (not 17 chars)
+```
+
+`$result->valid` is the strong (structure + check digit) verdict; `$result->structurallyValid` mirrors
+the lenient `isValid()` the decode path uses. `toArray()` / JSON-encoding gives a flat, API-friendly
+shape (`vin`, `valid`, `structurally_valid`, `check_digit_valid`, `errors`).
+
 ### `lookupMany()` — decode a batch in one request
 
 Importing a fleet? `lookupMany()` decodes many VINs in a single provider round-trip (NHTSA's

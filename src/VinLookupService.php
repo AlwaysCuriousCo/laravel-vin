@@ -182,6 +182,50 @@ class VinLookupService
     }
 
     /**
+     * Run every offline check against a VIN and report the outcome as a {@see VinValidation}: an
+     * overall `valid` verdict (structurally valid AND correct check digit), the structural and
+     * check-digit dimensions separately, and a typed {@see VinValidationError} per failure so a caller
+     * can tell a wrong-length VIN from an illegal character from a bad check digit (VIN-025).
+     *
+     * Performs no decoder or network call, and does not change the lenient, structural-only contract
+     * of {@see isValid()} — `inspect($vin)->structurallyValid` always equals `isValid($vin)`.
+     */
+    public function inspect(string $vin): VinValidation
+    {
+        $vin = $this->normalize($vin);
+
+        $structurallyValid = $this->matchesPattern($vin);
+
+        $errors = [];
+
+        if (! $structurallyValid) {
+            // Classify the structural failure(s); a short string with a stray character trips both.
+            if (strlen($vin) !== 17) {
+                $errors[] = VinValidationError::WrongLength;
+            }
+
+            if (preg_match('/[^A-HJ-NPR-Z0-9]/', $vin)) {
+                $errors[] = VinValidationError::IllegalCharacters;
+            }
+        }
+
+        // The check digit only means something for an otherwise-valid VIN.
+        $checkDigitValid = $structurallyValid && VinCheckDigit::matches($vin);
+
+        if ($structurallyValid && ! $checkDigitValid) {
+            $errors[] = VinValidationError::InvalidCheckDigit;
+        }
+
+        return new VinValidation(
+            vin: $vin,
+            valid: $structurallyValid && $checkDigitValid,
+            structurallyValid: $structurallyValid,
+            checkDigitValid: $checkDigitValid,
+            errors: $errors,
+        );
+    }
+
+    /**
      * Resolve a single VIN through the gate, validation and read-through cache.
      *
      * @return array{0: VehicleData, 1: bool} the decoded vehicle and whether it came from cache

@@ -2,7 +2,7 @@
 
 **ID prefix:** `VIN`
 **Status:** Accepted
-**Version:** 2.1.0
+**Version:** 2.2.0
 **Last updated:** 2026-07-07
 **Owners:** @alwayscurious
 
@@ -264,6 +264,29 @@ structural-only. Verification MUST perform no network call.
 > **Test:** `tests/VinRuleTest.php::test_the_check_digit_is_only_enforced_when_opted_in`,
 > `tests/VinRuleTest.php::test_has_valid_check_digit_is_stricter_than_is_valid`,
 > `tests/VinRuleTest.php::test_the_check_digit_helper_matches_the_iso_3779_standard`
+
+---
+
+**[VIN-025]** `Vin::inspect(string $vin)` (and `VinLookupService::inspect()`) MUST return a
+`VinValidation` value object describing the outcome of every **offline** check: an overall `valid`
+verdict (structurally valid **and** correct check digit), the `structurallyValid` and
+`checkDigitValid` dimensions separately, and a list of typed `VinValidationError` reasons for any
+failure. The reasons MUST distinguish `WrongLength` (not 17 characters), `IllegalCharacters` (a
+character outside `[A-HJ-NPR-Z0-9]`, i.e. `I`/`O`/`Q` or punctuation) and `InvalidCheckDigit` (a
+structurally valid VIN whose 9th-position check digit does not match). `inspect()` MUST perform no
+decoder or network call and MUST NOT change the structural-only semantics of `isValid()` (VIN-003):
+`inspect($vin)->structurallyValid` MUST equal `isValid($vin)`.
+
+> **Rationale:** Form feedback needs to say *why* a VIN was rejected — wrong length vs. an illegal
+> character vs. a bad check digit — not just return a bool, and without spending a decode call. The
+> overall `valid` verdict is the strong (structure + check digit) answer, distinct from the lenient
+> structural gate `isValid()` keeps for the decode path.
+> **Test:** `tests/VinValidationTest.php::test_a_valid_vin_passes_every_check`,
+> `tests/VinValidationTest.php::test_a_bad_check_digit_fails_with_a_reason`,
+> `tests/VinValidationTest.php::test_an_illegal_character_is_rejected`,
+> `tests/VinValidationTest.php::test_a_wrong_length_is_rejected`,
+> `tests/VinValidationTest.php::test_inspect_makes_no_network_call`,
+> `tests/VinValidationTest.php::test_inspect_agrees_with_is_valid_on_structure`
 
 ### 4.8 Failure signal
 
