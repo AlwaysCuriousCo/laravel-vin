@@ -3,6 +3,7 @@
 namespace AlwaysCurious\Vin\Vehicle;
 
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Support\Str;
 use JsonSerializable;
 
 /**
@@ -49,15 +50,9 @@ final readonly class Body implements Arrayable, JsonSerializable
      */
     public function toArray(): array
     {
-        return [
-            'doors' => $this->doors,
-            'seats' => $this->seats,
-            'seat_rows' => $this->seatRows,
-            'gvwr' => $this->gvwr,
-            'cab_type' => $this->cabType,
-            'wheel_base_type' => $this->wheelBaseType,
-            'trailer_type' => $this->trailerType,
-        ];
+        $values = get_object_vars($this);
+
+        return array_combine(array_map(Str::snake(...), array_keys($values)), $values);
     }
 
     /**

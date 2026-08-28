@@ -4,6 +4,15 @@ All notable changes to `alwayscurious/laravel-vin` are documented here. This pro
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and the format of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- Internal simplification, no behavior change: `VinValidation` is now constructed from `(vin, errors)` and
+  derives `valid` / `structurallyValid` / `checkDigitValid`; `VehicleData::fake()` takes named overrides
+  as a variadic (`fake(make: 'Ford')` unchanged); `VinLookupService::normalize()` and `VIN_PATTERN` are
+  public so `Rules\Vin` and the test doubles share them.
+
 ## [1.0.0] - 2026-07-07
 
 First stable release. The public API — the `Vin` facade, the `VinDecoder` driver seam, `VehicleData`,

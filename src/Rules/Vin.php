@@ -3,6 +3,7 @@
 namespace AlwaysCurious\Vin\Rules;
 
 use AlwaysCurious\Vin\Support\VinCheckDigit;
+use AlwaysCurious\Vin\VinLookupService;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 
@@ -21,9 +22,6 @@ use Illuminate\Contracts\Validation\ValidationRule;
  */
 class Vin implements ValidationRule
 {
-    /** Mirrors VinLookupService::VIN_PATTERN — 17 chars, excluding I, O and Q (VIN-002). */
-    private const PATTERN = '/^[A-HJ-NPR-Z0-9]{17}$/';
-
     public function __construct(private bool $checkDigit = false) {}
 
     /**
@@ -38,9 +36,9 @@ class Vin implements ValidationRule
 
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
-        $vin = is_string($value) ? strtoupper(trim($value)) : '';
+        $vin = is_string($value) ? VinLookupService::normalize($value) : '';
 
-        if (! preg_match(self::PATTERN, $vin)) {
+        if (! preg_match(VinLookupService::VIN_PATTERN, $vin)) {
             $fail('The :attribute field must be a valid 17-character VIN.');
 
             return;

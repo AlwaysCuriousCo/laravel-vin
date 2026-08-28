@@ -22,17 +22,28 @@ use JsonSerializable;
  */
 final readonly class VinValidation implements Arrayable, JsonSerializable
 {
+    /** Whether the VIN passed every check (structurally valid AND correct check digit). */
+    public bool $valid;
+
+    /** Whether the VIN is 17 characters of `[A-HJ-NPR-Z0-9]` — always equals `Vin::isValid()`. */
+    public bool $structurallyValid;
+
+    /** Whether the ISO 3779 check digit matches; false whenever the VIN is structurally invalid. */
+    public bool $checkDigitValid;
+
     /**
      * @param  string  $vin  The normalized (uppercased, trimmed) input that was inspected.
      * @param  list<VinValidationError>  $errors  Every failed check; empty when {@see $valid} is true.
      */
     public function __construct(
         public string $vin,
-        public bool $valid,
-        public bool $structurallyValid,
-        public bool $checkDigitValid,
         public array $errors = [],
-    ) {}
+    ) {
+        $this->valid = $errors === [];
+        $this->structurallyValid = ! $this->hasError(VinValidationError::WrongLength)
+            && ! $this->hasError(VinValidationError::IllegalCharacters);
+        $this->checkDigitValid = $this->valid;
+    }
 
     /**
      * Whether the VIN passed every check (structurally valid AND correct check digit).

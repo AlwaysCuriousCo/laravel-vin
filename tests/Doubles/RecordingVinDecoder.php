@@ -29,16 +29,6 @@ class RecordingVinDecoder implements VinDecoder
         $this->lastVin = $vin;
         $this->lastModelYear = $modelYear;
 
-        return new VehicleData(
-            vin: $vin,
-            year: 2026,
-            make: $this->make,
-            model: $this->model,
-            series: null,
-            trim: null,
-            bodyClass: null,
-            errorCode: 0,
-            errorText: null,
-        );
+        return VehicleData::fake(vin: $vin, make: $this->make, model: $this->model);
     }
 }

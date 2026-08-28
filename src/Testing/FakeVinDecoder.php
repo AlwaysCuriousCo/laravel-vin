@@ -5,6 +5,7 @@ namespace AlwaysCurious\Vin\Testing;
 use AlwaysCurious\Vin\Contracts\VinDecoder;
 use AlwaysCurious\Vin\Facades\Vin;
 use AlwaysCurious\Vin\VehicleData;
+use AlwaysCurious\Vin\VinLookupService;
 use Throwable;
 
 /**
@@ -25,7 +26,7 @@ class FakeVinDecoder implements VinDecoder
     public function __construct(array $map = [])
     {
         foreach ($map as $vin => $value) {
-            $this->map[strtoupper(trim((string) $vin))] = $value;
+            $this->map[VinLookupService::normalize((string) $vin)] = $value;
         }
     }
 

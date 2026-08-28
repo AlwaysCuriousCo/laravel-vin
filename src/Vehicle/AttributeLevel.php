@@ -34,7 +34,7 @@ enum AttributeLevel: string
      */
     public static function fromConfig(mixed $value): self
     {
-        return is_string($value) ? (self::tryFrom($value) ?? self::Full) : self::Full;
+        return self::tryFrom((string) $value) ?? self::Full;
     }
 
     /** Whether this level hydrates the typed attribute groups. */

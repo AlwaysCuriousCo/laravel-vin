@@ -3,6 +3,7 @@
 namespace AlwaysCurious\Vin\Vehicle;
 
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Support\Str;
 use JsonSerializable;
 
 /**
@@ -59,20 +60,9 @@ final readonly class Engine implements Arrayable, JsonSerializable
      */
     public function toArray(): array
     {
-        return [
-            'fuel_type_primary' => $this->fuelTypePrimary,
-            'fuel_type_secondary' => $this->fuelTypeSecondary,
-            'cylinders' => $this->cylinders,
-            'displacement_l' => $this->displacementL,
-            'displacement_cc' => $this->displacementCc,
-            'horsepower' => $this->horsepower,
-            'model' => $this->model,
-            'configuration' => $this->configuration,
-            'electrification_level' => $this->electrificationLevel,
-            'drive_type' => $this->driveType,
-            'transmission_style' => $this->transmissionStyle,
-            'transmission_speeds' => $this->transmissionSpeeds,
-        ];
+        $values = get_object_vars($this);
+
+        return array_combine(array_map(Str::snake(...), array_keys($values)), $values);
     }
 
     /**

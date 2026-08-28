@@ -10,6 +10,7 @@
         "automotive",
         "vin-decoder"
     ],
+    "type": "library",
     "homepage": "https://github.com/alwayscurious/laravel-vin",
     "license": "MIT",
     "authors": [

@@ -3,6 +3,7 @@
 namespace AlwaysCurious\Vin\Vehicle;
 
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Support\Str;
 use JsonSerializable;
 
 /**
@@ -41,12 +42,9 @@ final readonly class Plant implements Arrayable, JsonSerializable
      */
     public function toArray(): array
     {
-        return [
-            'city' => $this->city,
-            'state' => $this->state,
-            'country' => $this->country,
-            'company' => $this->company,
-        ];
+        $values = get_object_vars($this);
+
+        return array_combine(array_map(Str::snake(...), array_keys($values)), $values);
     }
 
     /**

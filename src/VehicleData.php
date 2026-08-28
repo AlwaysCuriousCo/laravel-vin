@@ -98,44 +98,22 @@ final readonly class VehicleData implements Arrayable, JsonSerializable
      * consumer writes `VehicleData::fake(make: 'Ford', model: 'F-150')` without hand-assembling the
      * full constructor or knowing any provider's wire format (VD-009).
      *
-     * @param  array<string, string>  $attributes
+     * @param  mixed  ...$overrides  Any constructor argument, by name (e.g. `make: 'Ford'`).
      */
-    public static function fake(
-        string $vin = '1FTFW1E50NKF12345',
-        ?int $year = 2026,
-        ?string $make = 'ACME',
-        ?string $model = 'Rocket',
-        ?string $series = null,
-        ?string $trim = null,
-        ?string $bodyClass = null,
-        ?int $errorCode = 0,
-        ?string $errorText = null,
-        ?string $manufacturer = null,
-        ?string $vehicleType = null,
-        Engine $engine = new Engine,
-        Safety $safety = new Safety,
-        Body $body = new Body,
-        Plant $plant = new Plant,
-        array $attributes = [],
-    ): self {
-        return new self(
-            vin: $vin,
-            year: $year,
-            make: $make,
-            model: $model,
-            series: $series,
-            trim: $trim,
-            bodyClass: $bodyClass,
-            errorCode: $errorCode,
-            errorText: $errorText,
-            manufacturer: $manufacturer,
-            vehicleType: $vehicleType,
-            engine: $engine,
-            safety: $safety,
-            body: $body,
-            plant: $plant,
-            attributes: $attributes,
-        );
+    public static function fake(mixed ...$overrides): self
+    {
+        return new self(...[
+            'vin' => '1FTFW1E50NKF12345',
+            'year' => 2026,
+            'make' => 'ACME',
+            'model' => 'Rocket',
+            'series' => null,
+            'trim' => null,
+            'bodyClass' => null,
+            'errorCode' => 0,
+            'errorText' => null,
+            ...$overrides,
+        ]);
     }
 
     /**
@@ -160,14 +138,7 @@ final readonly class VehicleData implements Arrayable, JsonSerializable
      */
     public function only(array $keys): array
     {
-        $identity = $this->identityValues();
-        $projection = [];
-
-        foreach ($keys as $key) {
-            $projection[$key] = $this->identityValue($identity, $key);
-        }
-
-        return $projection;
+        return $this->toColumns(array_combine($keys, $keys));
     }
 
     /**

@@ -25,7 +25,7 @@ class VinLookupService
     /**
      * VIN structure: 17 characters, excluding the letters I, O and Q.
      */
-    private const VIN_PATTERN = '/^[A-HJ-NPR-Z0-9]{17}$/';
+    public const VIN_PATTERN = '/^[A-HJ-NPR-Z0-9]{17}$/';
 
     public function __construct(
         private readonly VinDecoder $decoder,
@@ -53,7 +53,7 @@ class VinLookupService
         try {
             [$vehicle, $fromCache] = $this->resolve($vin, $modelYear);
         } catch (VinLookupException $e) {
-            Event::dispatch(new VinDecodeFailed($this->normalize($vin), $this->driver, $e->reason, $e, $modelYear));
+            Event::dispatch(new VinDecodeFailed(self::normalize($vin), $this->driver, $e->reason, $e, $modelYear));
 
             throw $e;
         }
@@ -96,38 +96,30 @@ class VinLookupService
             throw VinLookupException::lookupDisabled();
         }
 
-        // Normalize + validate every VIN up front (fail fast, before any provider call) and
-        // de-duplicate while preserving first-seen order.
-        $normalized = [];
+        // Normalize, de-duplicate (first-seen order) and validate every VIN up front so a bad one
+        // fails fast, before any provider call.
+        $normalized = array_values(array_unique(array_map(self::normalize(...), $vins)));
 
-        foreach ($vins as $vin) {
-            $vin = $this->normalize($vin);
-
+        foreach ($normalized as $vin) {
             if (! $this->matchesPattern($vin)) {
                 throw VinLookupException::invalidVin($vin);
             }
-
-            $normalized[$vin] = true;
         }
-
-        $normalized = array_keys($normalized);
 
         $cache = Cache::store($this->cacheStore);
 
-        $results = [];
-        $fromCache = [];
-        $misses = [];
+        $hits = [];
 
         foreach ($normalized as $vin) {
             $cached = $cache->get($this->cacheKey($vin, $modelYear));
 
             if ($cached instanceof VehicleData) {
-                $results[$vin] = $cached;
-                $fromCache[$vin] = true;
-            } else {
-                $misses[] = $vin;
+                $hits[$vin] = $cached;
             }
         }
+
+        $misses = array_values(array_diff($normalized, array_keys($hits)));
+        $decoded = [];
 
         if ($misses !== []) {
             try {
@@ -143,22 +135,22 @@ class VinLookupService
 
             foreach ($decoded as $vin => $vehicle) {
                 $cache->put($this->cacheKey($vin, $modelYear), $vehicle, $this->cacheTtl);
-                $results[$vin] = $vehicle;
-                $fromCache[$vin] = false;
             }
         }
 
-        // Re-key in input order and dispatch a success event per resolved VIN.
-        $ordered = [];
+        // Assemble in input order and dispatch a success event per resolved VIN.
+        $results = [];
 
         foreach ($normalized as $vin) {
-            if (isset($results[$vin])) {
-                $ordered[$vin] = $results[$vin];
-                Event::dispatch(new VinDecoded($results[$vin], $this->driver, $modelYear, $fromCache[$vin]));
+            $vehicle = $hits[$vin] ?? $decoded[$vin] ?? null;
+
+            if ($vehicle !== null) {
+                $results[$vin] = $vehicle;
+                Event::dispatch(new VinDecoded($vehicle, $this->driver, $modelYear, isset($hits[$vin])));
             }
         }
 
-        return $ordered;
+        return $results;
     }
 
     /**
@@ -167,7 +159,7 @@ class VinLookupService
      */
     public function isValid(string $vin): bool
     {
-        return $this->matchesPattern($this->normalize($vin));
+        return $this->matchesPattern(self::normalize($vin));
     }
 
     /**
@@ -176,9 +168,7 @@ class VinLookupService
      */
     public function hasValidCheckDigit(string $vin): bool
     {
-        $vin = $this->normalize($vin);
-
-        return $this->matchesPattern($vin) && VinCheckDigit::matches($vin);
+        return $this->inspect($vin)->valid;
     }
 
     /**
@@ -192,37 +182,24 @@ class VinLookupService
      */
     public function inspect(string $vin): VinValidation
     {
-        $vin = $this->normalize($vin);
-
-        $structurallyValid = $this->matchesPattern($vin);
-
+        $vin = self::normalize($vin);
         $errors = [];
 
-        if (! $structurallyValid) {
-            // Classify the structural failure(s); a short string with a stray character trips both.
-            if (strlen($vin) !== 17) {
-                $errors[] = VinValidationError::WrongLength;
-            }
+        // Length and charset are reported separately; a short string with a stray character trips both.
+        if (strlen($vin) !== 17) {
+            $errors[] = VinValidationError::WrongLength;
+        }
 
-            if (preg_match('/[^A-HJ-NPR-Z0-9]/', $vin)) {
-                $errors[] = VinValidationError::IllegalCharacters;
-            }
+        if (preg_match('/[^A-HJ-NPR-Z0-9]/', $vin)) {
+            $errors[] = VinValidationError::IllegalCharacters;
         }
 
         // The check digit only means something for an otherwise-valid VIN.
-        $checkDigitValid = $structurallyValid && VinCheckDigit::matches($vin);
-
-        if ($structurallyValid && ! $checkDigitValid) {
+        if ($errors === [] && ! VinCheckDigit::matches($vin)) {
             $errors[] = VinValidationError::InvalidCheckDigit;
         }
 
-        return new VinValidation(
-            vin: $vin,
-            valid: $structurallyValid && $checkDigitValid,
-            structurallyValid: $structurallyValid,
-            checkDigitValid: $checkDigitValid,
-            errors: $errors,
-        );
+        return new VinValidation($vin, $errors);
     }
 
     /**
@@ -236,7 +213,7 @@ class VinLookupService
             throw VinLookupException::lookupDisabled();
         }
 
-        $vin = $this->normalize($vin);
+        $vin = self::normalize($vin);
 
         if (! $this->matchesPattern($vin)) {
             throw VinLookupException::invalidVin($vin);
@@ -297,7 +274,10 @@ class VinLookupService
         return (bool) preg_match(self::VIN_PATTERN, $normalizedVin);
     }
 
-    private function normalize(string $vin): string
+    /**
+     * Uppercase and trim a VIN — the normalization every entry point applies before checking it.
+     */
+    public static function normalize(string $vin): string
     {
         return strtoupper(trim($vin));
     }

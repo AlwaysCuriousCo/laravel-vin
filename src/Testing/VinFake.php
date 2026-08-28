@@ -84,7 +84,7 @@ class VinFake extends VinManager
      */
     public function assertLookedUp(string $vin, ?callable $callback = null): void
     {
-        $vin = strtoupper(trim($vin));
+        $vin = VinLookupService::normalize($vin);
 
         $matches = array_filter(
             $this->lookups,
@@ -103,7 +103,7 @@ class VinFake extends VinManager
      */
     public function assertNotLookedUp(string $vin): void
     {
-        $vin = strtoupper(trim($vin));
+        $vin = VinLookupService::normalize($vin);
 
         Assert::assertNotContains(
             $vin,
@@ -134,6 +134,6 @@ class VinFake extends VinManager
 
     private function record(string $vin, ?int $modelYear): void
     {
-        $this->lookups[] = ['vin' => strtoupper(trim($vin)), 'modelYear' => $modelYear];
+        $this->lookups[] = ['vin' => VinLookupService::normalize($vin), 'modelYear' => $modelYear];
     }
 }

@@ -3,6 +3,7 @@
 namespace AlwaysCurious\Vin\Vehicle;
 
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Support\Str;
 use JsonSerializable;
 
 /**
@@ -64,22 +65,9 @@ final readonly class Safety implements Arrayable, JsonSerializable
      */
     public function toArray(): array
     {
-        return [
-            'airbag_front' => $this->airbagFront,
-            'airbag_side' => $this->airbagSide,
-            'airbag_curtain' => $this->airbagCurtain,
-            'airbag_knee' => $this->airbagKnee,
-            'seatbelts' => $this->seatbelts,
-            'abs' => $this->abs,
-            'electronic_stability_control' => $this->electronicStabilityControl,
-            'traction_control' => $this->tractionControl,
-            'tpms' => $this->tpms,
-            'rear_visibility_system' => $this->rearVisibilitySystem,
-            'forward_collision_warning' => $this->forwardCollisionWarning,
-            'lane_departure_warning' => $this->laneDepartureWarning,
-            'adaptive_cruise_control' => $this->adaptiveCruiseControl,
-            'blind_spot_monitoring' => $this->blindSpotMonitoring,
-        ];
+        $values = get_object_vars($this);
+
+        return array_combine(array_map(Str::snake(...), array_keys($values)), $values);
     }
 
     /**
