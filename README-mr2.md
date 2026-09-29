@@ -15,12 +15,12 @@ composer require alwayscurious/laravel-vin
 ```php
 use AlwaysCurious\Vin\Facades\Vin;
 
-$vehicle = Vin::lookup('7YAMYFS50TY009706');
+$vehicle = Vin::lookup('JT2SW21M0M0012345');
 
-$vehicle->year;  // 2026
-$vehicle->make;  // 'HYUNDAI'
-$vehicle->model; // 'Ioniq 9'
-$vehicle->trim;  // 'Calligraphy'
+$vehicle->year;      // 1991
+$vehicle->make;      // 'TOYOTA'
+$vehicle->model;     // 'MR2'
+$vehicle->bodyClass; // 'Coupe'
 ```
 
 > **Coverage:** NHTSA's data covers vehicles made for the US market. For other markets, you can [use a different VIN provider](#using-a-different-vin-provider).
@@ -90,10 +90,10 @@ use AlwaysCurious\Vin\Facades\Vin;
 
 // Throws VinLookupException on an invalid VIN, an API failure, or when
 // live decoding is disabled by configuration.
-$vehicle = Vin::lookup('7YAMYFS50TY009706');
+$vehicle = Vin::lookup('JT2SW21M0M0012345');
 
 // Optional model-year hint to improve decoding accuracy:
-$vehicle = Vin::lookup('7YAMYFS50TY009706', 2026);
+$vehicle = Vin::lookup('JT2SW21M0M0012345', 1991);
 ```
 
 If you prefer dependency injection, type-hint or resolve `VinLookupService`. It uses the default driver and exposes `lookup()`, `tryLookup()`, and `isValid()`:
@@ -104,7 +104,7 @@ use AlwaysCurious\Vin\VinLookupService;
 public function __construct(private readonly VinLookupService $vin) {}
 
 // ...
-$vehicle = $this->vin->lookup('7YAMYFS50TY009706');
+$vehicle = $this->vin->lookup('JT2SW21M0M0012345');
 ```
 
 ### `tryLookup()`
@@ -112,7 +112,7 @@ $vehicle = $this->vin->lookup('7YAMYFS50TY009706');
 Returns `null` instead of throwing on any failure:
 
 ```php
-$vehicle = Vin::tryLookup('7YAMYFS50TY009706');
+$vehicle = Vin::tryLookup('JT2SW21M0M0012345');
 
 if ($vehicle !== null) {
     // ...
@@ -124,7 +124,7 @@ if ($vehicle !== null) {
 Check a VIN's structure (17 characters, excluding I, O, and Q) without a network request:
 
 ```php
-Vin::isValid('7yamyfs50ty009706'); // true — input is normalized first
+Vin::isValid('jt2sw21m0m0012345'); // true — input is normalized first
 Vin::isValid('NOT-A-VIN');         // false
 ```
 
@@ -148,7 +148,7 @@ $request->validate([
 `Vin::inspect()` runs the structural and check-digit checks without a network request. It returns a `VinValidation` with an overall result and a specific reason for each failure:
 
 ```php
-$result = Vin::inspect('7YAMYFS50TY009706');
+$result = Vin::inspect('JT2SW21M0M0012345');
 
 $result->valid;             // true  — structurally valid AND correct check digit
 $result->structurallyValid; // true  — always equals Vin::isValid()
@@ -156,13 +156,13 @@ $result->checkDigitValid;   // true
 $result->errors;            // []
 
 // A structurally valid VIN with a mistyped check digit:
-$bad = Vin::inspect('7YAMYFS51TY009706');
+$bad = Vin::inspect('JT2SW21M1M0012345');
 $bad->fails();              // true
 $bad->messages();           // ['The VIN check digit (9th character) does not match; the VIN may be mistyped.']
 
 // Each failure mode is distinguishable:
-Vin::inspect('IYAMYFS50TY009706')->errors; // [VinValidationError::IllegalCharacters]  (I/O/Q rejected)
-Vin::inspect('7YAMYFS50TY00970')->errors;  // [VinValidationError::WrongLength]         (not 17 chars)
+Vin::inspect('JT2SW21MOM0012345')->errors; // [VinValidationError::IllegalCharacters]  (letter O for zero)
+Vin::inspect('JT2SW21M0M001234')->errors;  // [VinValidationError::WrongLength]         (not 17 chars)
 ```
 
 `$result->valid` requires both checks to pass. `$result->structurallyValid` matches the less strict `isValid()` check used during decoding. `toArray()` and JSON encoding produce a flat result with `vin`, `valid`, `structurally_valid`, `check_digit_valid`, and `errors`.
@@ -172,9 +172,9 @@ Vin::inspect('7YAMYFS50TY00970')->errors;  // [VinValidationError::WrongLength] 
 `lookupMany()` sends uncached VINs to NHTSA's `DecodeVinValuesBatch` endpoint in one request. It returns `VehicleData` values keyed by normalized VIN, in input order:
 
 ```php
-$vehicles = Vin::lookupMany(['7YAMYFS50TY009706', '1HGCM82633A004352']);
+$vehicles = Vin::lookupMany(['JT2SW21M0M0012345', '1HGCM82633A004352']);
 
-$vehicles['7YAMYFS50TY009706']->make; // 'HYUNDAI'
+$vehicles['JT2SW21M0M0012345']->make; // 'TOYOTA'
 ```
 
 The enabled setting and cache apply to the batch. An invalid VIN throws before any request, so check uncertain input with `isValid()` first. If a custom driver doesn't support batching, `lookupMany()` calls `lookup()` for each VIN instead.
@@ -222,14 +222,14 @@ Event::listen(function (VinDecoded $event) {
 `lookup()` and `tryLookup()` return an immutable `VehicleData`. With the default `VIN_ATTRIBUTES=identity` setting, it contains these fields:
 
 ```php
-$vehicle->vin;           // '7YAMYFS50TY009706'
-$vehicle->year;          // 2026 (int|null)
-$vehicle->make;          // 'HYUNDAI'
-$vehicle->model;         // 'Ioniq 9'
-$vehicle->trim;          // 'Calligraphy'
-$vehicle->bodyClass;     // 'Sport Utility Vehicle (SUV)/Multi-Purpose Vehicle (MPV)'
-$vehicle->vehicleType;   // 'MULTIPURPOSE PASSENGER VEHICLE (MPV)'
-$vehicle->manufacturer;  // 'HYUNDAI MOTOR GROUP METAPLANT AMERICA'
+$vehicle->vin;           // 'JT2SW21M0M0012345'
+$vehicle->year;          // 1991 (int|null)
+$vehicle->make;          // 'TOYOTA'
+$vehicle->model;         // 'MR2'
+$vehicle->trim;          // null (string|null) — not every VIN carries a trim
+$vehicle->bodyClass;     // 'Coupe'
+$vehicle->vehicleType;   // 'PASSENGER CAR'
+$vehicle->manufacturer;  // 'TOYOTA MOTOR CORPORATION'
 $vehicle->errorCode;     // 0 (int|null) — primary NHTSA decode status
 $vehicle->errorText;     // string|null
 
@@ -251,11 +251,11 @@ For `series`, engine, safety, body, and plant details, or the raw NHTSA fields, 
 To save a decode with `Model::fill()`, use `only()` to select fields by their property names or `toColumns()` to map them to your model's column names:
 
 ```php
-$vehicle->only(['make', 'model', 'year', 'trim']);
-// ['make' => 'HYUNDAI', 'model' => 'Ioniq 9', 'year' => 2026, 'trim' => 'Calligraphy']
+$vehicle->only(['make', 'model', 'year', 'bodyClass']);
+// ['make' => 'TOYOTA', 'model' => 'MR2', 'year' => 1991, 'bodyClass' => 'Coupe']
 
 $vehicle->toColumns(['year' => 'model_year', 'make' => 'make', 'bodyClass' => 'body_class']);
-// ['model_year' => 2026, 'make' => 'HYUNDAI', 'body_class' => 'Sport Utility Vehicle (SUV)/...']
+// ['model_year' => 1991, 'make' => 'TOYOTA', 'body_class' => 'Coupe']
 
 $car->fill($vehicle->toColumns([...]));
 ```
@@ -267,37 +267,36 @@ Both methods throw if you name an unknown field. They work with the flat identit
 NHTSA's `DecodeVinValues` response includes more than the identity fields. Four typed groups hold the commonly used specs. Each group is always present, but an individual field is `null` when NHTSA has no value for it. Missing numbers, such as doors or horsepower, are `null` rather than `0`:
 
 ```php
-$vehicle->engine->fuelTypePrimary;      // 'Electric'
-$vehicle->engine->horsepower;           // int|null   e.g. 422
-$vehicle->engine->displacementL;        // float|null e.g. 5.0
-$vehicle->engine->driveType;            // 'AWD'
-$vehicle->engine->transmissionStyle;    // 'Automatic'
-$vehicle->engine->electrificationLevel; // 'BEV (Battery Electric Vehicle)'
+$vehicle->engine->fuelTypePrimary;      // 'Gasoline'
+$vehicle->engine->horsepower;           // int|null   e.g. 130
+$vehicle->engine->displacementL;        // float|null e.g. 2.2
+$vehicle->engine->cylinders;            // int|null   e.g. 4
+$vehicle->engine->model;                // '5S'
+$vehicle->engine->electrificationLevel; // null — set for hybrids/EVs, e.g. 'BEV (Battery Electric Vehicle)'
 
-$vehicle->body->doors;                  // int|null   e.g. 4
+$vehicle->body->doors;                  // int|null   e.g. 2
 $vehicle->body->seats;                  // int|null
-$vehicle->body->gvwr;                   // 'Class 2E: 6,001 - 7,000 lb ...'
+$vehicle->body->gvwr;                   // 'Class 1: 6,000 lb or less (2,722 kg or less)'
 
-$vehicle->safety->airbagCurtain;        // 'All Rows'
-$vehicle->safety->rearVisibilitySystem; // 'Standard' — NHTSA's backup-camera field
-$vehicle->safety->electronicStabilityControl; // 'Standard'
+$vehicle->safety->airbagFront;          // 'Driver Seat Only'
+$vehicle->safety->seatbelts;            // 'Manual'
+$vehicle->safety->rearVisibilitySystem; // null — NHTSA's backup-camera field
 
-$vehicle->plant->city;                  // 'ELLABELL'
-$vehicle->plant->country;               // 'UNITED STATES (USA)'
+$vehicle->plant->country;               // 'JAPAN'
 ```
 
 Each group implements `Arrayable` and `JsonSerializable`. `VehicleData::toArray()` and JSON encoding include them under `engine`, `safety`, `body`, and `plant`.
 
 ### Raw NHTSA attributes
 
-With `VIN_ATTRIBUTES=full`, you can also access fields that aren't in the typed groups, such as `DestinationMarket`, `NCSABodyType`, and `Note`. The non-empty response fields keep their original NHTSA names:
+With `VIN_ATTRIBUTES=full`, you can also access fields that aren't in the typed groups, such as `OtherEngineInfo`, `NCSABodyType`, and `Note`. The non-empty response fields keep their original NHTSA names:
 
 ```php
-$vehicle->attribute('DestinationMarket');       // 'North America'
+$vehicle->attribute('OtherEngineInfo');         // 'Electronic Fuel Injection'
 $vehicle->attribute('NoSuchField');             // null
 $vehicle->attribute('NoSuchField', 'unknown');  // 'unknown' — optional default
 
-$vehicle->attributes; // ['Make' => 'HYUNDAI', 'EngineHP' => '422', ...] full non-empty row
+$vehicle->attributes; // ['Make' => 'TOYOTA', 'EngineHP' => '130', ...] full non-empty row
 ```
 
 Raw values are trimmed strings. Use the typed groups if you need `int` or `float` values. The raw fields are available through `->attributes` and `attribute()`; `toArray()` and `json_encode()` do not include them.
@@ -386,7 +385,7 @@ VIN_DRIVER=acme
 You can also use it for one call while keeping NHTSA as the default:
 
 ```php
-$vehicle = Vin::using('acme')->lookup('7YAMYFS50TY009706');
+$vehicle = Vin::using('acme')->lookup('JT2SW21M0M0012345');
 ```
 
 Every driver uses the package's structural validation, `VIN_ENABLED` setting, and cache. Cache keys include the driver name, so providers don't share decoded results. A driver's `decode()` method can also read from a fixed dataset, queue, or in-memory table instead of an HTTP API.
@@ -426,15 +425,15 @@ use Illuminate\Support\Facades\Http;
 Http::fake([
     'vpic.nhtsa.dot.gov/*' => Http::response([
         'Results' => [[
-            'Make' => 'HYUNDAI',
-            'Model' => 'Ioniq 9',
-            'ModelYear' => '2026',
+            'Make' => 'TOYOTA',
+            'Model' => 'MR2',
+            'ModelYear' => '1991',
             'ErrorCode' => '0',
         ]],
     ]),
 ]);
 
-$vehicle = Vin::lookup('7YAMYFS50TY009706');
+$vehicle = Vin::lookup('JT2SW21M0M0012345');
 ```
 
 Run the package's tests and formatter with:
